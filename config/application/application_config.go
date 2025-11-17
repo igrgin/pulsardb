@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"pulsardb/application-config/properties"
+	"pulsardb/config/application/properties"
 	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
 
-func LoadConfig() (*properties.Config, error) {
-	baseConfig, err := loadAndExpandYaml("application-config", "application")
+func LoadConfig(baseName string, baseDir string, profileDir string) (*properties.Config, error) {
+	baseConfig, err := loadAndExpandYaml(baseDir, baseName)
 	if err != nil {
 		return nil, err
 	}
@@ -21,14 +21,13 @@ func LoadConfig() (*properties.Config, error) {
 		return nil, fmt.Errorf("unmarshal base config: %w", err)
 	}
 
-	profileDir := cfg.Meta.ProfilesDir
 	profile := cfg.Meta.Profile
 
 	if profile == "" || profileDir == "" {
 		return nil, fmt.Errorf("profile or profiles_dir not set")
 	}
 
-	profileConfig, err := loadAndExpandYaml(profileDir, "application-"+profile)
+	profileConfig, err := loadAndExpandYaml(profileDir, baseName+"-"+profile)
 	if err != nil {
 		return nil, err
 	}

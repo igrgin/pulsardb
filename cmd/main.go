@@ -1,9 +1,11 @@
 package main
 
-import "pulsardb/application-config"
+import (
+	"pulsardb/config/application"
+)
 
 func main() {
-	appConfig, err := applicationConfig.LoadConfig()
+	appConfig, err := applicationConfig.LoadConfig("application", "config/application/base", "config/application/profiles")
 	if err != nil {
 		panic(err)
 	}
