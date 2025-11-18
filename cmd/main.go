@@ -4,15 +4,12 @@ import (
 	"log/slog"
 	"pulsardb/config/application"
 	"pulsardb/server"
-	"pulsardb/utility/logging"
 )
 
-var AppConfig = applicationConfig.Initialize("application", "config/application/base",
-	"config/application/profiles")
+var AppConfig, _ = applicationConfig.Initialize("config/application/base",
+	"config/application/profiles", "info")
 
 func main() {
-	logger := logging.NewLogger(AppConfig.Meta.LogLevel)
-	slog.SetDefault(logger)
 	slog.Info("starting application")
 	server.Start(AppConfig.Server.Network, ":"+AppConfig.Server.Port)
 }

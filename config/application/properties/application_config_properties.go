@@ -1,8 +1,7 @@
 package properties
 
 type MetaConfig struct {
-	Profile  string `yaml:"profile"`
-	LogLevel string `yaml:"log-level"`
+	Profile string `yaml:"profile"`
 }
 
 type ServerConfig struct {

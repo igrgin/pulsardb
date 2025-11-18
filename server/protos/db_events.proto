@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package db_events;
+
+option go_package = "github.com/igrgin/pulsardb/server/gen/db_events;db_events";
+
+enum DBEventType {
+  SET = 0;
+  GET = 1;
+  DELETE = 3;
+}
+
+message SetEvent {
+  bytes key = 2;
+  bytes value = 3;
+  bool only_if_absent = 5;
+  bool only_if_present = 6;
+}
+
+message GetEvent {
+  bytes key = 2;
+}
+
+message DeleteEvent {
+  bytes key = 2;
+}
+
+message DBEventRequest {
+  DBEventType type = 1;
+  oneof event {
+    SetEvent set_event = 3;
+    GetEvent get_event = 4;
+    DeleteEvent delete_event = 6;
+  }
+}
+
+message DBEventResponse {
+  bool success = 1;
+  oneof response {
+    bytes value = 2;
+    bool existed = 3;
+  }
+  optional string error_message = 4;
+}
+
+
+service DBEventService {
+  rpc HandleEvent(DBEventRequest) returns (DBEventResponse);
+}

@@ -1,49 +1,55 @@
 package applicationConfig
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
-
 	"os"
 	"path/filepath"
 	"pulsardb/config/application/properties"
+	"pulsardb/utility/logging"
 	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
 
-func Initialize(baseName string, baseDir string, profileDir string) *properties.Config {
-	baseConfig, err := loadAndExpandYaml(baseDir, baseName)
+func Initialize(baseDir string, profileDir string, loglevel string) (*properties.Config, error) {
+	var logger = logging.NewLogger(loglevel)
+	slog.SetDefault(logger)
+
+	baseConfig, err := loadAndExpandYaml(baseDir, "application")
 	if err != nil {
-		slog.Error("Error loading base config", err.Error())
-		os.Exit(-1)
+		slog.Error("Error loading base config " + err.Error())
+		return nil, err
 	}
 
 	var cfg properties.Config
 	if err := yaml.Unmarshal([]byte(baseConfig), &cfg); err != nil {
-		slog.Error("Error parsing base config", err.Error())
-		os.Exit(-1)
+		slog.Error("Error parsing base config " + err.Error())
+		return nil, err
 	}
 
 	profile := cfg.Meta.Profile
 
 	if profile == "" || profileDir == "" {
 		slog.Error("profile and profile dir are required")
-		os.Exit(-1)
+		return nil, errors.New("profile and profile dir are required")
 	}
 
-	profileConfig, err := loadAndExpandYaml(profileDir, baseName+"-"+profile)
+	slog.Info("Profile set: " + profile)
+
+	profileConfig, err := loadAndExpandYaml(profileDir, "application-"+profile)
 	if err != nil {
-		slog.Error("Error loading profile config", err.Error())
-		os.Exit(-1)
+		slog.Error("Error loading profile config " + err.Error())
+		return nil, err
 	}
 
 	if err := yaml.Unmarshal([]byte(profileConfig), &cfg); err != nil {
-		slog.Error("Error parsing profile config", err.Error())
-		os.Exit(-1)
+		slog.Error("Error parsing profile config " + err.Error())
+		return nil, err
 	}
 
-	return &cfg
+	return &cfg, nil
 }
 
 func loadAndExpandYaml(dir, name string) (string, error) {
@@ -59,6 +65,7 @@ func loadAndExpandYaml(dir, name string) (string, error) {
 
 	expanded, err := ExpandEnvStrict(string(raw))
 	if err != nil {
+		slog.Error(err.Error())
 		return "", err
 	}
 
