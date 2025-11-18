@@ -56,39 +56,49 @@ func TestLoadConfig_success(t *testing.T) {
 	writeYAMLDir(t, baseDir, "application-test", "meta:\n  profile: \"local\"")
 	writeYAMLDir(t, profileDir, "application-test-local", "")
 
-	cfg, err := LoadConfig("application-test", baseDir, profileDir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	cfg := Initialize("application-test", baseDir, profileDir)
+
 	t.Logf("%+v", cfg)
 }
 
 func TestLoadConfig_missingProfile(t *testing.T) {
 	baseDir := t.TempDir()
 	profileDir := t.TempDir()
-	_, err := LoadConfig("application-test", baseDir, profileDir)
-	if err == nil {
-		t.Fatal("expected error, got none")
-	}
-	t.Logf("%+v", err)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic, got none")
+		}
+	}()
+
+	_ = Initialize("application-test", baseDir, profileDir)
 }
 
 func TestLoadConfig_missingFile(t *testing.T) {
 	baseDir := t.TempDir()
 	profileDir := t.TempDir()
-	_, err := LoadConfig("application-test", baseDir, profileDir)
-	if err == nil {
-		t.Fatal("expected error, got none")
-	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic, got none")
+		}
+	}()
+
+	_ = Initialize("application-test", baseDir, profileDir)
 }
 
 func TestLoadConfig_missingDir(t *testing.T) {
 	baseDir := t.TempDir()
 	profileDir := filepath.Join(baseDir, "profiles")
-	_, err := LoadConfig("application-test", baseDir, profileDir)
-	if err == nil {
-		t.Fatal("expected error, got none")
-	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic, got none")
+		}
+	}()
+
+	_ = Initialize("application-test", baseDir, profileDir)
+
 }
 
 func TestLoadConfig_invalidYaml(t *testing.T) {
@@ -97,12 +107,14 @@ func TestLoadConfig_invalidYaml(t *testing.T) {
 	writeYAMLDir(t, baseDir, "application-test", "meta:\n  profile: \"local\"")
 	writeYAMLDir(t, profileDir, "application-local", "foo \"bar\"\nfoo:: \"bar\"\nfoo: \"bar\"")
 
-	_, err := LoadConfig("application-test", baseDir, profileDir)
-	if err == nil {
-		t.Fatal("expected error, got none")
-	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic, got none")
+		}
+	}()
 
-	t.Logf("%+v", err)
+	_ = Initialize("application-test", baseDir, profileDir)
+
 }
 
 func TestLoadConfig_invalidProfile(t *testing.T) {
@@ -111,8 +123,11 @@ func TestLoadConfig_invalidProfile(t *testing.T) {
 	writeYAMLDir(t, baseDir, "application-test", "meta:\n  profile: \"test\"")
 	writeYAMLDir(t, profileDir, "application-local", "")
 
-	_, err := LoadConfig("application-test", baseDir, profileDir)
-	if err == nil {
-		t.Fatal("expected error, got none")
-	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic, got none")
+		}
+	}()
+
+	_ = Initialize("application-test", baseDir, profileDir)
 }

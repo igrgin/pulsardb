@@ -2,6 +2,8 @@ package applicationConfig
 
 import (
 	"fmt"
+	"log/slog"
+
 	"os"
 	"path/filepath"
 	"pulsardb/config/application/properties"
@@ -10,33 +12,38 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func LoadConfig(baseName string, baseDir string, profileDir string) (*properties.Config, error) {
+func Initialize(baseName string, baseDir string, profileDir string) *properties.Config {
 	baseConfig, err := loadAndExpandYaml(baseDir, baseName)
 	if err != nil {
-		return nil, err
+		slog.Error("Error loading base config", err.Error())
+		os.Exit(-1)
 	}
 
 	var cfg properties.Config
 	if err := yaml.Unmarshal([]byte(baseConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("unmarshal base config: %w", err)
+		slog.Error("Error parsing base config", err.Error())
+		os.Exit(-1)
 	}
 
 	profile := cfg.Meta.Profile
 
 	if profile == "" || profileDir == "" {
-		return nil, fmt.Errorf("profile or profiles_dir not set")
+		slog.Error("profile and profile dir are required")
+		os.Exit(-1)
 	}
 
 	profileConfig, err := loadAndExpandYaml(profileDir, baseName+"-"+profile)
 	if err != nil {
-		return nil, err
+		slog.Error("Error loading profile config", err.Error())
+		os.Exit(-1)
 	}
 
 	if err := yaml.Unmarshal([]byte(profileConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("Unmarshal profile config: %w", err)
+		slog.Error("Error parsing profile config", err.Error())
+		os.Exit(-1)
 	}
 
-	return &cfg, nil
+	return &cfg
 }
 
 func loadAndExpandYaml(dir, name string) (string, error) {

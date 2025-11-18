@@ -1,2 +1,7 @@
 meta:
-  profile: "prod"
+  profile: "local"
+  log-level: "info"
+
+server:
+  network: tcp
+  port: 3333
