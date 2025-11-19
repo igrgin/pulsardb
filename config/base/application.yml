@@ -3,4 +3,4 @@ meta:
 
 server:
   network: tcp
-  port: 3333
+  port: 50051

@@ -11,5 +11,5 @@ type DBEventServer struct {
 
 func (*DBEventServer) HandleEvent(context context.Context, request *db_events.DBEventRequest) (*db_events.DBEventResponse, error) {
 	message := "Hello"
-	return &db_events.DBEventResponse{Success: false, ErrorMessage: &message}, nil
+	return &db_events.DBEventResponse{Success: false, ErrorMessage: message}, nil
 }

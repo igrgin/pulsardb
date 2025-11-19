@@ -1,4 +1,4 @@
-package properties
+package applicationConfig
 
 type MetaConfig struct {
 	Profile string `yaml:"profile"`

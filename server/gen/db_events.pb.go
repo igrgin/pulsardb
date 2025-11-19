@@ -24,9 +24,10 @@ const (
 type DBEventType int32
 
 const (
-	DBEventType_SET    DBEventType = 0
-	DBEventType_GET    DBEventType = 1
-	DBEventType_DELETE DBEventType = 3
+	DBEventType_SET      DBEventType = 0
+	DBEventType_GET      DBEventType = 1
+	DBEventType_DELETE   DBEventType = 2
+	DBEventType_SHUTDOWN DBEventType = 3
 )
 
 // Enum value maps for DBEventType.
@@ -34,12 +35,14 @@ var (
 	DBEventType_name = map[int32]string{
 		0: "SET",
 		1: "GET",
-		3: "DELETE",
+		2: "DELETE",
+		3: "SHUTDOWN",
 	}
 	DBEventType_value = map[string]int32{
-		"SET":    0,
-		"GET":    1,
-		"DELETE": 3,
+		"SET":      0,
+		"GET":      1,
+		"DELETE":   2,
+		"SHUTDOWN": 3,
 	}
 )
 
@@ -70,178 +73,20 @@ func (DBEventType) EnumDescriptor() ([]byte, []int) {
 	return file_db_events_proto_rawDescGZIP(), []int{0}
 }
 
-type SetEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
-	OnlyIfAbsent  bool                   `protobuf:"varint,5,opt,name=only_if_absent,json=onlyIfAbsent,proto3" json:"only_if_absent,omitempty"`
-	OnlyIfPresent bool                   `protobuf:"varint,6,opt,name=only_if_present,json=onlyIfPresent,proto3" json:"only_if_present,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetEvent) Reset() {
-	*x = SetEvent{}
-	mi := &file_db_events_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetEvent) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetEvent) ProtoMessage() {}
-
-func (x *SetEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_db_events_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetEvent.ProtoReflect.Descriptor instead.
-func (*SetEvent) Descriptor() ([]byte, []int) {
-	return file_db_events_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *SetEvent) GetKey() []byte {
-	if x != nil {
-		return x.Key
-	}
-	return nil
-}
-
-func (x *SetEvent) GetValue() []byte {
-	if x != nil {
-		return x.Value
-	}
-	return nil
-}
-
-func (x *SetEvent) GetOnlyIfAbsent() bool {
-	if x != nil {
-		return x.OnlyIfAbsent
-	}
-	return false
-}
-
-func (x *SetEvent) GetOnlyIfPresent() bool {
-	if x != nil {
-		return x.OnlyIfPresent
-	}
-	return false
-}
-
-type GetEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetEvent) Reset() {
-	*x = GetEvent{}
-	mi := &file_db_events_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetEvent) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetEvent) ProtoMessage() {}
-
-func (x *GetEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_db_events_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetEvent.ProtoReflect.Descriptor instead.
-func (*GetEvent) Descriptor() ([]byte, []int) {
-	return file_db_events_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *GetEvent) GetKey() []byte {
-	if x != nil {
-		return x.Key
-	}
-	return nil
-}
-
-type DeleteEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DeleteEvent) Reset() {
-	*x = DeleteEvent{}
-	mi := &file_db_events_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DeleteEvent) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DeleteEvent) ProtoMessage() {}
-
-func (x *DeleteEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_db_events_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DeleteEvent.ProtoReflect.Descriptor instead.
-func (*DeleteEvent) Descriptor() ([]byte, []int) {
-	return file_db_events_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *DeleteEvent) GetKey() []byte {
-	if x != nil {
-		return x.Key
-	}
-	return nil
-}
-
 type DBEventRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Type  DBEventType            `protobuf:"varint,1,opt,name=type,proto3,enum=db_events.DBEventType" json:"type,omitempty"`
-	// Types that are valid to be assigned to Event:
-	//
-	//	*DBEventRequest_SetEvent
-	//	*DBEventRequest_GetEvent
-	//	*DBEventRequest_DeleteEvent
-	Event         isDBEventRequest_Event `protobuf_oneof:"event"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          DBEventType            `protobuf:"varint,1,opt,name=type,proto3,enum=db_events.DBEventType" json:"type,omitempty"`
+	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`                                             // Used for SET, GET, DELETE
+	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`                                         // Only used for SET
+	OnlyIfAbsent  bool                   `protobuf:"varint,4,opt,name=only_if_absent,json=onlyIfAbsent,proto3" json:"only_if_absent,omitempty"`    // Only used for SET
+	OnlyIfPresent bool                   `protobuf:"varint,5,opt,name=only_if_present,json=onlyIfPresent,proto3" json:"only_if_present,omitempty"` // Only used for SET
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DBEventRequest) Reset() {
 	*x = DBEventRequest{}
-	mi := &file_db_events_proto_msgTypes[3]
+	mi := &file_db_events_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -253,7 +98,7 @@ func (x *DBEventRequest) String() string {
 func (*DBEventRequest) ProtoMessage() {}
 
 func (x *DBEventRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_db_events_proto_msgTypes[3]
+	mi := &file_db_events_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -266,7 +111,7 @@ func (x *DBEventRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DBEventRequest.ProtoReflect.Descriptor instead.
 func (*DBEventRequest) Descriptor() ([]byte, []int) {
-	return file_db_events_proto_rawDescGZIP(), []int{3}
+	return file_db_events_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *DBEventRequest) GetType() DBEventType {
@@ -276,78 +121,47 @@ func (x *DBEventRequest) GetType() DBEventType {
 	return DBEventType_SET
 }
 
-func (x *DBEventRequest) GetEvent() isDBEventRequest_Event {
+func (x *DBEventRequest) GetKey() []byte {
 	if x != nil {
-		return x.Event
+		return x.Key
 	}
 	return nil
 }
 
-func (x *DBEventRequest) GetSetEvent() *SetEvent {
+func (x *DBEventRequest) GetValue() []byte {
 	if x != nil {
-		if x, ok := x.Event.(*DBEventRequest_SetEvent); ok {
-			return x.SetEvent
-		}
+		return x.Value
 	}
 	return nil
 }
 
-func (x *DBEventRequest) GetGetEvent() *GetEvent {
+func (x *DBEventRequest) GetOnlyIfAbsent() bool {
 	if x != nil {
-		if x, ok := x.Event.(*DBEventRequest_GetEvent); ok {
-			return x.GetEvent
-		}
+		return x.OnlyIfAbsent
 	}
-	return nil
+	return false
 }
 
-func (x *DBEventRequest) GetDeleteEvent() *DeleteEvent {
+func (x *DBEventRequest) GetOnlyIfPresent() bool {
 	if x != nil {
-		if x, ok := x.Event.(*DBEventRequest_DeleteEvent); ok {
-			return x.DeleteEvent
-		}
+		return x.OnlyIfPresent
 	}
-	return nil
+	return false
 }
-
-type isDBEventRequest_Event interface {
-	isDBEventRequest_Event()
-}
-
-type DBEventRequest_SetEvent struct {
-	SetEvent *SetEvent `protobuf:"bytes,3,opt,name=set_event,json=setEvent,proto3,oneof"`
-}
-
-type DBEventRequest_GetEvent struct {
-	GetEvent *GetEvent `protobuf:"bytes,4,opt,name=get_event,json=getEvent,proto3,oneof"`
-}
-
-type DBEventRequest_DeleteEvent struct {
-	DeleteEvent *DeleteEvent `protobuf:"bytes,6,opt,name=delete_event,json=deleteEvent,proto3,oneof"`
-}
-
-func (*DBEventRequest_SetEvent) isDBEventRequest_Event() {}
-
-func (*DBEventRequest_GetEvent) isDBEventRequest_Event() {}
-
-func (*DBEventRequest_DeleteEvent) isDBEventRequest_Event() {}
 
 type DBEventResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Success bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Types that are valid to be assigned to Response:
-	//
-	//	*DBEventResponse_Value
-	//	*DBEventResponse_Existed
-	Response      isDBEventResponse_Response `protobuf_oneof:"response"`
-	ErrorMessage  *string                    `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          DBEventType            `protobuf:"varint,1,opt,name=type,proto3,enum=db_events.DBEventType" json:"type,omitempty"`
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`                                   // Only populated for GET
+	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"` // Only populated on error
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DBEventResponse) Reset() {
 	*x = DBEventResponse{}
-	mi := &file_db_events_proto_msgTypes[4]
+	mi := &file_db_events_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -359,7 +173,7 @@ func (x *DBEventResponse) String() string {
 func (*DBEventResponse) ProtoMessage() {}
 
 func (x *DBEventResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_db_events_proto_msgTypes[4]
+	mi := &file_db_events_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -372,7 +186,14 @@ func (x *DBEventResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DBEventResponse.ProtoReflect.Descriptor instead.
 func (*DBEventResponse) Descriptor() ([]byte, []int) {
-	return file_db_events_proto_rawDescGZIP(), []int{4}
+	return file_db_events_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DBEventResponse) GetType() DBEventType {
+	if x != nil {
+		return x.Type
+	}
+	return DBEventType_SET
 }
 
 func (x *DBEventResponse) GetSuccess() bool {
@@ -382,87 +203,42 @@ func (x *DBEventResponse) GetSuccess() bool {
 	return false
 }
 
-func (x *DBEventResponse) GetResponse() isDBEventResponse_Response {
-	if x != nil {
-		return x.Response
-	}
-	return nil
-}
-
 func (x *DBEventResponse) GetValue() []byte {
 	if x != nil {
-		if x, ok := x.Response.(*DBEventResponse_Value); ok {
-			return x.Value
-		}
+		return x.Value
 	}
 	return nil
-}
-
-func (x *DBEventResponse) GetExisted() bool {
-	if x != nil {
-		if x, ok := x.Response.(*DBEventResponse_Existed); ok {
-			return x.Existed
-		}
-	}
-	return false
 }
 
 func (x *DBEventResponse) GetErrorMessage() string {
-	if x != nil && x.ErrorMessage != nil {
-		return *x.ErrorMessage
+	if x != nil {
+		return x.ErrorMessage
 	}
 	return ""
 }
-
-type isDBEventResponse_Response interface {
-	isDBEventResponse_Response()
-}
-
-type DBEventResponse_Value struct {
-	Value []byte `protobuf:"bytes,2,opt,name=value,proto3,oneof"`
-}
-
-type DBEventResponse_Existed struct {
-	Existed bool `protobuf:"varint,3,opt,name=existed,proto3,oneof"`
-}
-
-func (*DBEventResponse_Value) isDBEventResponse_Response() {}
-
-func (*DBEventResponse_Existed) isDBEventResponse_Response() {}
 
 var File_db_events_proto protoreflect.FileDescriptor
 
 const file_db_events_proto_rawDesc = "" +
 	"\n" +
-	"\x0fdb_events.proto\x12\tdb_events\"\x80\x01\n" +
-	"\bSetEvent\x12\x10\n" +
+	"\x0fdb_events.proto\x12\tdb_events\"\xb2\x01\n" +
+	"\x0eDBEventRequest\x12*\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x16.db_events.DBEventTypeR\x04type\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\fR\x03key\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\fR\x05value\x12$\n" +
-	"\x0eonly_if_absent\x18\x05 \x01(\bR\fonlyIfAbsent\x12&\n" +
-	"\x0fonly_if_present\x18\x06 \x01(\bR\ronlyIfPresent\"\x1c\n" +
-	"\bGetEvent\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\fR\x03key\"\x1f\n" +
-	"\vDeleteEvent\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\fR\x03key\"\xea\x01\n" +
-	"\x0eDBEventRequest\x12*\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x16.db_events.DBEventTypeR\x04type\x122\n" +
-	"\tset_event\x18\x03 \x01(\v2\x13.db_events.SetEventH\x00R\bsetEvent\x122\n" +
-	"\tget_event\x18\x04 \x01(\v2\x13.db_events.GetEventH\x00R\bgetEvent\x12;\n" +
-	"\fdelete_event\x18\x06 \x01(\v2\x16.db_events.DeleteEventH\x00R\vdeleteEventB\a\n" +
-	"\x05event\"\xa7\x01\n" +
-	"\x0fDBEventResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x16\n" +
-	"\x05value\x18\x02 \x01(\fH\x00R\x05value\x12\x1a\n" +
-	"\aexisted\x18\x03 \x01(\bH\x00R\aexisted\x12(\n" +
-	"\rerror_message\x18\x04 \x01(\tH\x01R\ferrorMessage\x88\x01\x01B\n" +
-	"\n" +
-	"\bresponseB\x10\n" +
-	"\x0e_error_message*+\n" +
+	"\x0eonly_if_absent\x18\x04 \x01(\bR\fonlyIfAbsent\x12&\n" +
+	"\x0fonly_if_present\x18\x05 \x01(\bR\ronlyIfPresent\"\x92\x01\n" +
+	"\x0fDBEventResponse\x12*\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x16.db_events.DBEventTypeR\x04type\x12\x18\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value\x12#\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage*9\n" +
 	"\vDBEventType\x12\a\n" +
 	"\x03SET\x10\x00\x12\a\n" +
 	"\x03GET\x10\x01\x12\n" +
 	"\n" +
-	"\x06DELETE\x10\x032V\n" +
+	"\x06DELETE\x10\x02\x12\f\n" +
+	"\bSHUTDOWN\x10\x032V\n" +
 	"\x0eDBEventService\x12D\n" +
 	"\vHandleEvent\x12\x19.db_events.DBEventRequest\x1a\x1a.db_events.DBEventResponseB;Z9github.com/igrgin/pulsardb/server/gen/db_events;db_eventsb\x06proto3"
 
@@ -479,27 +255,22 @@ func file_db_events_proto_rawDescGZIP() []byte {
 }
 
 var file_db_events_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_db_events_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_db_events_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_db_events_proto_goTypes = []any{
 	(DBEventType)(0),        // 0: db_events.DBEventType
-	(*SetEvent)(nil),        // 1: db_events.SetEvent
-	(*GetEvent)(nil),        // 2: db_events.GetEvent
-	(*DeleteEvent)(nil),     // 3: db_events.DeleteEvent
-	(*DBEventRequest)(nil),  // 4: db_events.DBEventRequest
-	(*DBEventResponse)(nil), // 5: db_events.DBEventResponse
+	(*DBEventRequest)(nil),  // 1: db_events.DBEventRequest
+	(*DBEventResponse)(nil), // 2: db_events.DBEventResponse
 }
 var file_db_events_proto_depIdxs = []int32{
 	0, // 0: db_events.DBEventRequest.type:type_name -> db_events.DBEventType
-	1, // 1: db_events.DBEventRequest.set_event:type_name -> db_events.SetEvent
-	2, // 2: db_events.DBEventRequest.get_event:type_name -> db_events.GetEvent
-	3, // 3: db_events.DBEventRequest.delete_event:type_name -> db_events.DeleteEvent
-	4, // 4: db_events.DBEventService.HandleEvent:input_type -> db_events.DBEventRequest
-	5, // 5: db_events.DBEventService.HandleEvent:output_type -> db_events.DBEventResponse
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0, // 1: db_events.DBEventResponse.type:type_name -> db_events.DBEventType
+	1, // 2: db_events.DBEventService.HandleEvent:input_type -> db_events.DBEventRequest
+	2, // 3: db_events.DBEventService.HandleEvent:output_type -> db_events.DBEventResponse
+	3, // [3:4] is the sub-list for method output_type
+	2, // [2:3] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_db_events_proto_init() }
@@ -507,22 +278,13 @@ func file_db_events_proto_init() {
 	if File_db_events_proto != nil {
 		return
 	}
-	file_db_events_proto_msgTypes[3].OneofWrappers = []any{
-		(*DBEventRequest_SetEvent)(nil),
-		(*DBEventRequest_GetEvent)(nil),
-		(*DBEventRequest_DeleteEvent)(nil),
-	}
-	file_db_events_proto_msgTypes[4].OneofWrappers = []any{
-		(*DBEventResponse_Value)(nil),
-		(*DBEventResponse_Existed)(nil),
-	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_db_events_proto_rawDesc), len(file_db_events_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
