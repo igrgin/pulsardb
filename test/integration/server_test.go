@@ -4,12 +4,15 @@ import (
 	"context"
 	"net"
 	"pulsardb/server"
-	dbevents "pulsardb/server/gen"
+	"pulsardb/server/gen"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func startGRPCServer(t *testing.T) net.Listener {
@@ -18,10 +21,9 @@ func startGRPCServer(t *testing.T) net.Listener {
 	addr := ":0"
 
 	lis, s, err := server.Start(network, addr)
-
-	if err != nil {
-		t.Fatalf("Server failed to start with error: %v", err)
-	}
+	require.NoError(t, err, "Server failed to start")
+	require.NotNil(t, lis, "listener must not be nil")
+	require.NotNil(t, s, "grpc server must not be nil")
 
 	t.Cleanup(func() {
 		s.GracefulStop()
@@ -37,11 +39,10 @@ func TestStart_ListenerIsActive(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("expected server to be listening at %s, but dial failed: %v", lis.Addr().String(), err)
-	}
+	require.NoError(t, err, "expected server to be listening at %s, but dial failed: %v", lis.Addr().String(), err)
+	defer conn.Close()
 
-	conn.Close()
+	assert.NotNil(t, conn, "connection should not be nil")
 }
 
 func TestStart_HandleEventSuccess(t *testing.T) {
@@ -49,15 +50,14 @@ func TestStart_HandleEventSuccess(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	conn, err := grpc.NewClient("dns:///"+lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("failed to connect to gRPC server: %v", err)
-	}
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to connect to gRPC server: %v", err)
+	defer conn.Close()
 
-	client := dbevents.NewDBEventServiceClient(conn)
+	client := db_events.NewDBEventServiceClient(conn)
 
-	req := &dbevents.DBEventRequest{
-		Type:          dbevents.DBEventType_SET,
+	req := &db_events.DBEventRequest{
+		Type:          db_events.DBEventType_SET,
 		Key:           []byte("mykey"),
 		Value:         []byte("myvalue"),
 		OnlyIfAbsent:  false,
@@ -66,11 +66,7 @@ func TestStart_HandleEventSuccess(t *testing.T) {
 
 	ctx := context.Background()
 	resp, err := client.HandleEvent(ctx, req)
-	if err != nil {
-		t.Fatalf("HandleEvent failed: %v", err)
-	}
 
-	if resp == nil {
-		t.Error("expected response, got nil")
-	}
+	require.NoError(t, err, "HandleEvent failed: %v", err)
+	assert.NotNil(t, resp, "expected response, got nil")
 }
