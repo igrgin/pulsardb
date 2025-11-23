@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"net"
+	"pulsardb/database/event_queue"
 	"pulsardb/server"
 	"pulsardb/server/gen"
 	"testing"
@@ -19,8 +20,14 @@ func startGRPCServer(t *testing.T) net.Listener {
 	t.Helper()
 	network := "tcp"
 	addr := ":0"
+	var timeout int32 = 10
+	queueSize := 10
 
-	lis, s, err := server.Start(network, addr)
+	dbQueue, err := event_queue.CreateDBQueue(queueSize)
+
+	require.NoError(t, err, "Failed to create DBQueue")
+
+	lis, s, err := server.Start(network, addr, timeout, dbQueue)
 	require.NoError(t, err, "Server failed to start")
 	require.NotNil(t, lis, "listener must not be nil")
 	require.NotNil(t, s, "grpc server must not be nil")
@@ -58,15 +65,15 @@ func TestStart_HandleEventSuccess(t *testing.T) {
 
 	req := &db_events.DBEventRequest{
 		Type:          db_events.DBEventType_SET,
-		Key:           []byte("mykey"),
-		Value:         []byte("myvalue"),
+		Key:           "mykey",
+		Value:         &db_events.DBEventRequest_StringValue{StringValue: "myvalue"},
 		OnlyIfAbsent:  false,
 		OnlyIfPresent: false,
 	}
 
 	ctx := context.Background()
-	resp, err := client.HandleEvent(ctx, req)
+	resp, err := client.EnqueueDBEvent(ctx, req)
 
-	require.NoError(t, err, "HandleEvent failed: %v", err)
+	require.NoError(t, err, "EnqueueDBEvent failed: %v", err)
 	assert.NotNil(t, resp, "expected response, got nil")
 }
