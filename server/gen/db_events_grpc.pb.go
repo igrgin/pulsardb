@@ -19,14 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DBEventService_HandleEvent_FullMethodName = "/db_events.DBEventService/HandleEvent"
+	DBEventService_EnqueueDBEvent_FullMethodName = "/db_events.DBEventService/EnqueueDBEvent"
 )
 
 // DBEventServiceClient is the client API for DBEventService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DBEventServiceClient interface {
-	HandleEvent(ctx context.Context, in *DBEventRequest, opts ...grpc.CallOption) (*DBEventResponse, error)
+	EnqueueDBEvent(ctx context.Context, in *DBEventRequest, opts ...grpc.CallOption) (*DBEventResponse, error)
 }
 
 type dBEventServiceClient struct {
@@ -37,10 +37,10 @@ func NewDBEventServiceClient(cc grpc.ClientConnInterface) DBEventServiceClient {
 	return &dBEventServiceClient{cc}
 }
 
-func (c *dBEventServiceClient) HandleEvent(ctx context.Context, in *DBEventRequest, opts ...grpc.CallOption) (*DBEventResponse, error) {
+func (c *dBEventServiceClient) EnqueueDBEvent(ctx context.Context, in *DBEventRequest, opts ...grpc.CallOption) (*DBEventResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DBEventResponse)
-	err := c.cc.Invoke(ctx, DBEventService_HandleEvent_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, DBEventService_EnqueueDBEvent_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (c *dBEventServiceClient) HandleEvent(ctx context.Context, in *DBEventReque
 // All implementations must embed UnimplementedDBEventServiceServer
 // for forward compatibility.
 type DBEventServiceServer interface {
-	HandleEvent(context.Context, *DBEventRequest) (*DBEventResponse, error)
+	EnqueueDBEvent(context.Context, *DBEventRequest) (*DBEventResponse, error)
 	mustEmbedUnimplementedDBEventServiceServer()
 }
 
@@ -62,8 +62,8 @@ type DBEventServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedDBEventServiceServer struct{}
 
-func (UnimplementedDBEventServiceServer) HandleEvent(context.Context, *DBEventRequest) (*DBEventResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method HandleEvent not implemented")
+func (UnimplementedDBEventServiceServer) EnqueueDBEvent(context.Context, *DBEventRequest) (*DBEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnqueueDBEvent not implemented")
 }
 func (UnimplementedDBEventServiceServer) mustEmbedUnimplementedDBEventServiceServer() {}
 func (UnimplementedDBEventServiceServer) testEmbeddedByValue()                        {}
@@ -86,20 +86,20 @@ func RegisterDBEventServiceServer(s grpc.ServiceRegistrar, srv DBEventServiceSer
 	s.RegisterService(&DBEventService_ServiceDesc, srv)
 }
 
-func _DBEventService_HandleEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _DBEventService_EnqueueDBEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DBEventRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DBEventServiceServer).HandleEvent(ctx, in)
+		return srv.(DBEventServiceServer).EnqueueDBEvent(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DBEventService_HandleEvent_FullMethodName,
+		FullMethod: DBEventService_EnqueueDBEvent_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DBEventServiceServer).HandleEvent(ctx, req.(*DBEventRequest))
+		return srv.(DBEventServiceServer).EnqueueDBEvent(ctx, req.(*DBEventRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -112,8 +112,8 @@ var DBEventService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*DBEventServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "HandleEvent",
-			Handler:    _DBEventService_HandleEvent_Handler,
+			MethodName: "EnqueueDBEvent",
+			Handler:    _DBEventService_EnqueueDBEvent_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

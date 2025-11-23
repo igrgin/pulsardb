@@ -13,19 +13,31 @@ enum DBEventType {
 
 message DBEventRequest {
   DBEventType type = 1;
-  bytes key = 2;  // Used for SET, GET, DELETE
-  bytes value = 3;  // Only used for SET
-  bool only_if_absent = 4;  // Only used for SET
-  bool only_if_present = 5;  // Only used for SET
+  string key = 2;  // Used for SET, GET, DELETE
+  oneof value {
+    string string_value = 3;
+    int64  int_value    = 4;
+    double double_value = 5;
+    bool   bool_value   = 6;
+    bytes  bytes_value  = 7;
+  } // Only used for SET
+  bool only_if_absent = 8;  // Only used for SET
+  bool only_if_present = 9;  // Only used for SET
 }
 
 message DBEventResponse {
   DBEventType type = 1;
   bool success = 2;
-  bytes value = 3;  // Only populated for GET
-  string error_message = 4;  // Only populated on error
+  oneof value {
+    string string_value = 3;
+    int64  int_value    = 4;
+    double double_value = 5;
+    bool   bool_value   = 6;
+    bytes  bytes_value  = 7;
+  } // Only populated for GET
+  string error_message = 8;  // Only populated on error
 }
 
 service DBEventService {
-  rpc HandleEvent(DBEventRequest) returns (DBEventResponse);
+  rpc EnqueueDBEvent(DBEventRequest) returns (DBEventResponse);
 }

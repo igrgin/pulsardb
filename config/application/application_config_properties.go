@@ -7,9 +7,15 @@ type MetaConfig struct {
 type ServerConfig struct {
 	Network string `yaml:"network"`
 	Port    string `yaml:"port"`
+	Timeout int32  `yaml:"timeout"`
+}
+
+type DatabaseConfig struct {
+	QueueSize int `yaml:"queue-size"`
 }
 
 type Config struct {
-	Meta   MetaConfig   `yaml:"meta"`
-	Server ServerConfig `yaml:"server"`
+	Meta     MetaConfig     `yaml:"meta"`
+	Server   ServerConfig   `yaml:"server"`
+	Database DatabaseConfig `yaml:"database"`
 }

@@ -74,12 +74,19 @@ func (DBEventType) EnumDescriptor() ([]byte, []int) {
 }
 
 type DBEventRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          DBEventType            `protobuf:"varint,1,opt,name=type,proto3,enum=db_events.DBEventType" json:"type,omitempty"`
-	Key           []byte                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`                                             // Used for SET, GET, DELETE
-	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`                                         // Only used for SET
-	OnlyIfAbsent  bool                   `protobuf:"varint,4,opt,name=only_if_absent,json=onlyIfAbsent,proto3" json:"only_if_absent,omitempty"`    // Only used for SET
-	OnlyIfPresent bool                   `protobuf:"varint,5,opt,name=only_if_present,json=onlyIfPresent,proto3" json:"only_if_present,omitempty"` // Only used for SET
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Type  DBEventType            `protobuf:"varint,1,opt,name=type,proto3,enum=db_events.DBEventType" json:"type,omitempty"`
+	Key   string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"` // Used for SET, GET, DELETE
+	// Types that are valid to be assigned to Value:
+	//
+	//	*DBEventRequest_StringValue
+	//	*DBEventRequest_IntValue
+	//	*DBEventRequest_DoubleValue
+	//	*DBEventRequest_BoolValue
+	//	*DBEventRequest_BytesValue
+	Value         isDBEventRequest_Value `protobuf_oneof:"value"`
+	OnlyIfAbsent  bool                   `protobuf:"varint,8,opt,name=only_if_absent,json=onlyIfAbsent,proto3" json:"only_if_absent,omitempty"`    // Only used for SET
+	OnlyIfPresent bool                   `protobuf:"varint,9,opt,name=only_if_present,json=onlyIfPresent,proto3" json:"only_if_present,omitempty"` // Only used for SET
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -121,16 +128,61 @@ func (x *DBEventRequest) GetType() DBEventType {
 	return DBEventType_SET
 }
 
-func (x *DBEventRequest) GetKey() []byte {
+func (x *DBEventRequest) GetKey() string {
 	if x != nil {
 		return x.Key
+	}
+	return ""
+}
+
+func (x *DBEventRequest) GetValue() isDBEventRequest_Value {
+	if x != nil {
+		return x.Value
 	}
 	return nil
 }
 
-func (x *DBEventRequest) GetValue() []byte {
+func (x *DBEventRequest) GetStringValue() string {
 	if x != nil {
-		return x.Value
+		if x, ok := x.Value.(*DBEventRequest_StringValue); ok {
+			return x.StringValue
+		}
+	}
+	return ""
+}
+
+func (x *DBEventRequest) GetIntValue() int64 {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventRequest_IntValue); ok {
+			return x.IntValue
+		}
+	}
+	return 0
+}
+
+func (x *DBEventRequest) GetDoubleValue() float64 {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventRequest_DoubleValue); ok {
+			return x.DoubleValue
+		}
+	}
+	return 0
+}
+
+func (x *DBEventRequest) GetBoolValue() bool {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventRequest_BoolValue); ok {
+			return x.BoolValue
+		}
+	}
+	return false
+}
+
+func (x *DBEventRequest) GetBytesValue() []byte {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventRequest_BytesValue); ok {
+			return x.BytesValue
+		}
 	}
 	return nil
 }
@@ -149,12 +201,53 @@ func (x *DBEventRequest) GetOnlyIfPresent() bool {
 	return false
 }
 
+type isDBEventRequest_Value interface {
+	isDBEventRequest_Value()
+}
+
+type DBEventRequest_StringValue struct {
+	StringValue string `protobuf:"bytes,3,opt,name=string_value,json=stringValue,proto3,oneof"`
+}
+
+type DBEventRequest_IntValue struct {
+	IntValue int64 `protobuf:"varint,4,opt,name=int_value,json=intValue,proto3,oneof"`
+}
+
+type DBEventRequest_DoubleValue struct {
+	DoubleValue float64 `protobuf:"fixed64,5,opt,name=double_value,json=doubleValue,proto3,oneof"`
+}
+
+type DBEventRequest_BoolValue struct {
+	BoolValue bool `protobuf:"varint,6,opt,name=bool_value,json=boolValue,proto3,oneof"`
+}
+
+type DBEventRequest_BytesValue struct {
+	BytesValue []byte `protobuf:"bytes,7,opt,name=bytes_value,json=bytesValue,proto3,oneof"`
+}
+
+func (*DBEventRequest_StringValue) isDBEventRequest_Value() {}
+
+func (*DBEventRequest_IntValue) isDBEventRequest_Value() {}
+
+func (*DBEventRequest_DoubleValue) isDBEventRequest_Value() {}
+
+func (*DBEventRequest_BoolValue) isDBEventRequest_Value() {}
+
+func (*DBEventRequest_BytesValue) isDBEventRequest_Value() {}
+
 type DBEventResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          DBEventType            `protobuf:"varint,1,opt,name=type,proto3,enum=db_events.DBEventType" json:"type,omitempty"`
-	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`                                   // Only populated for GET
-	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"` // Only populated on error
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Type    DBEventType            `protobuf:"varint,1,opt,name=type,proto3,enum=db_events.DBEventType" json:"type,omitempty"`
+	Success bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	// Types that are valid to be assigned to Value:
+	//
+	//	*DBEventResponse_StringValue
+	//	*DBEventResponse_IntValue
+	//	*DBEventResponse_DoubleValue
+	//	*DBEventResponse_BoolValue
+	//	*DBEventResponse_BytesValue
+	Value         isDBEventResponse_Value `protobuf_oneof:"value"`
+	ErrorMessage  string                  `protobuf:"bytes,8,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"` // Only populated on error
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -203,9 +296,54 @@ func (x *DBEventResponse) GetSuccess() bool {
 	return false
 }
 
-func (x *DBEventResponse) GetValue() []byte {
+func (x *DBEventResponse) GetValue() isDBEventResponse_Value {
 	if x != nil {
 		return x.Value
+	}
+	return nil
+}
+
+func (x *DBEventResponse) GetStringValue() string {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventResponse_StringValue); ok {
+			return x.StringValue
+		}
+	}
+	return ""
+}
+
+func (x *DBEventResponse) GetIntValue() int64 {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventResponse_IntValue); ok {
+			return x.IntValue
+		}
+	}
+	return 0
+}
+
+func (x *DBEventResponse) GetDoubleValue() float64 {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventResponse_DoubleValue); ok {
+			return x.DoubleValue
+		}
+	}
+	return 0
+}
+
+func (x *DBEventResponse) GetBoolValue() bool {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventResponse_BoolValue); ok {
+			return x.BoolValue
+		}
+	}
+	return false
+}
+
+func (x *DBEventResponse) GetBytesValue() []byte {
+	if x != nil {
+		if x, ok := x.Value.(*DBEventResponse_BytesValue); ok {
+			return x.BytesValue
+		}
 	}
 	return nil
 }
@@ -217,30 +355,78 @@ func (x *DBEventResponse) GetErrorMessage() string {
 	return ""
 }
 
+type isDBEventResponse_Value interface {
+	isDBEventResponse_Value()
+}
+
+type DBEventResponse_StringValue struct {
+	StringValue string `protobuf:"bytes,3,opt,name=string_value,json=stringValue,proto3,oneof"`
+}
+
+type DBEventResponse_IntValue struct {
+	IntValue int64 `protobuf:"varint,4,opt,name=int_value,json=intValue,proto3,oneof"`
+}
+
+type DBEventResponse_DoubleValue struct {
+	DoubleValue float64 `protobuf:"fixed64,5,opt,name=double_value,json=doubleValue,proto3,oneof"`
+}
+
+type DBEventResponse_BoolValue struct {
+	BoolValue bool `protobuf:"varint,6,opt,name=bool_value,json=boolValue,proto3,oneof"`
+}
+
+type DBEventResponse_BytesValue struct {
+	BytesValue []byte `protobuf:"bytes,7,opt,name=bytes_value,json=bytesValue,proto3,oneof"`
+}
+
+func (*DBEventResponse_StringValue) isDBEventResponse_Value() {}
+
+func (*DBEventResponse_IntValue) isDBEventResponse_Value() {}
+
+func (*DBEventResponse_DoubleValue) isDBEventResponse_Value() {}
+
+func (*DBEventResponse_BoolValue) isDBEventResponse_Value() {}
+
+func (*DBEventResponse_BytesValue) isDBEventResponse_Value() {}
+
 var File_db_events_proto protoreflect.FileDescriptor
 
 const file_db_events_proto_rawDesc = "" +
 	"\n" +
-	"\x0fdb_events.proto\x12\tdb_events\"\xb2\x01\n" +
+	"\x0fdb_events.proto\x12\tdb_events\"\xd2\x02\n" +
 	"\x0eDBEventRequest\x12*\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x16.db_events.DBEventTypeR\x04type\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\fR\x03key\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\fR\x05value\x12$\n" +
-	"\x0eonly_if_absent\x18\x04 \x01(\bR\fonlyIfAbsent\x12&\n" +
-	"\x0fonly_if_present\x18\x05 \x01(\bR\ronlyIfPresent\"\x92\x01\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12#\n" +
+	"\fstring_value\x18\x03 \x01(\tH\x00R\vstringValue\x12\x1d\n" +
+	"\tint_value\x18\x04 \x01(\x03H\x00R\bintValue\x12#\n" +
+	"\fdouble_value\x18\x05 \x01(\x01H\x00R\vdoubleValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
+	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
+	"bytesValue\x12$\n" +
+	"\x0eonly_if_absent\x18\b \x01(\bR\fonlyIfAbsent\x12&\n" +
+	"\x0fonly_if_present\x18\t \x01(\bR\ronlyIfPresentB\a\n" +
+	"\x05value\"\xb2\x02\n" +
 	"\x0fDBEventResponse\x12*\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x16.db_events.DBEventTypeR\x04type\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\fR\x05value\x12#\n" +
-	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage*9\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess\x12#\n" +
+	"\fstring_value\x18\x03 \x01(\tH\x00R\vstringValue\x12\x1d\n" +
+	"\tint_value\x18\x04 \x01(\x03H\x00R\bintValue\x12#\n" +
+	"\fdouble_value\x18\x05 \x01(\x01H\x00R\vdoubleValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
+	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
+	"bytesValue\x12#\n" +
+	"\rerror_message\x18\b \x01(\tR\ferrorMessageB\a\n" +
+	"\x05value*9\n" +
 	"\vDBEventType\x12\a\n" +
 	"\x03SET\x10\x00\x12\a\n" +
 	"\x03GET\x10\x01\x12\n" +
 	"\n" +
 	"\x06DELETE\x10\x02\x12\f\n" +
-	"\bSHUTDOWN\x10\x032V\n" +
-	"\x0eDBEventService\x12D\n" +
-	"\vHandleEvent\x12\x19.db_events.DBEventRequest\x1a\x1a.db_events.DBEventResponseB;Z9github.com/igrgin/pulsardb/server/gen/db_events;db_eventsb\x06proto3"
+	"\bSHUTDOWN\x10\x032Y\n" +
+	"\x0eDBEventService\x12G\n" +
+	"\x0eEnqueueDBEvent\x12\x19.db_events.DBEventRequest\x1a\x1a.db_events.DBEventResponseB;Z9github.com/igrgin/pulsardb/server/gen/db_events;db_eventsb\x06proto3"
 
 var (
 	file_db_events_proto_rawDescOnce sync.Once
@@ -264,8 +450,8 @@ var file_db_events_proto_goTypes = []any{
 var file_db_events_proto_depIdxs = []int32{
 	0, // 0: db_events.DBEventRequest.type:type_name -> db_events.DBEventType
 	0, // 1: db_events.DBEventResponse.type:type_name -> db_events.DBEventType
-	1, // 2: db_events.DBEventService.HandleEvent:input_type -> db_events.DBEventRequest
-	2, // 3: db_events.DBEventService.HandleEvent:output_type -> db_events.DBEventResponse
+	1, // 2: db_events.DBEventService.EnqueueDBEvent:input_type -> db_events.DBEventRequest
+	2, // 3: db_events.DBEventService.EnqueueDBEvent:output_type -> db_events.DBEventResponse
 	3, // [3:4] is the sub-list for method output_type
 	2, // [2:3] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -277,6 +463,20 @@ func init() { file_db_events_proto_init() }
 func file_db_events_proto_init() {
 	if File_db_events_proto != nil {
 		return
+	}
+	file_db_events_proto_msgTypes[0].OneofWrappers = []any{
+		(*DBEventRequest_StringValue)(nil),
+		(*DBEventRequest_IntValue)(nil),
+		(*DBEventRequest_DoubleValue)(nil),
+		(*DBEventRequest_BoolValue)(nil),
+		(*DBEventRequest_BytesValue)(nil),
+	}
+	file_db_events_proto_msgTypes[1].OneofWrappers = []any{
+		(*DBEventResponse_StringValue)(nil),
+		(*DBEventResponse_IntValue)(nil),
+		(*DBEventResponse_DoubleValue)(nil),
+		(*DBEventResponse_BoolValue)(nil),
+		(*DBEventResponse_BytesValue)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
