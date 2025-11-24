@@ -1,0 +1,11 @@
+app:
+  profile: local
+
+transport:
+  network: tcp
+  address: localhost
+  port: 50051
+  timeout: 20
+
+command:
+  queue-size: 20

@@ -1,48 +1,50 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log/slog"
 	"os"
 	"os/signal"
-	"pulsardb/config/initializer"
-	"pulsardb/database/event_queue"
-	"pulsardb/server"
+	"pulsardb/internal/configuration"
+	"pulsardb/internal/configuration/properties"
+	"pulsardb/internal/core/queue"
+	"pulsardb/internal/transport"
 	"syscall"
 )
 
 func main() {
-	AppConfig, err := initializer.Initialize("config/base",
-		"config/profiles", "info")
+	ctx, _ := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
+	slog.Info("Starting database...")
+	config, err := configuration.Load()
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to initialize configuration: %v", err))
-		os.Exit(1)
+		slog.Error("Failed to initialize application context", "Error", err)
+		return
 	}
 
-	slog.Info("starting application...")
+	cfgProvider := properties.NewProvider(config)
 
-	dbQueue, err := event_queue.CreateDBQueue(AppConfig.Database.QueueSize)
-
+	commandConfig := cfgProvider.GetCommand()
+	TaskQueue, err := queue.CreateTaskQueue(&commandConfig)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to create DB Queue: %v", err))
-		os.Exit(1)
+		slog.Error("Failed to create DB Queue", "Error", err)
+		return
 	}
 
-	lis, s, err := server.Start(AppConfig.Server.Network, ":"+AppConfig.Server.Port, AppConfig.Server.Timeout, dbQueue)
+	serverConfig := cfgProvider.GetTransport()
+	_, grpcServer, err := transport.Start(&serverConfig, TaskQueue)
 	if err != nil {
-		slog.Error(fmt.Sprintf("failed to start DB server: %v", err))
-		os.Exit(1)
+		slog.Error("Failed to start DB transport", "Error", err)
+		return
 	}
 
-	dbQueue.Start()
+	TaskQueue.Start()
 
-	quit := make(chan os.Signal, 1)
-	slog.Info("application started")
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	<-quit
+	slog.Info("Database Ready")
+	<-ctx.Done()
 
-	s.GracefulStop()
-	lis.Close()
-	slog.Info("shutting down database...GOODBYE")
+	slog.Info("Shutting down database...")
+	TaskQueue.Close()
+	grpcServer.GracefulStop()
 }

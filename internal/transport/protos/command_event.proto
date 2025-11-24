@@ -1,18 +1,18 @@
 syntax = "proto3";
 
-package db_events;
+package command_event;
 
-option go_package = "github.com/igrgin/pulsardb/server/gen/db_events;db_events";
+option go_package = "github.com/igrgin/pulsardb/transport/gen/command_event;command_event";
 
-enum DBEventType {
+enum CommandEventType {
   SET = 0;
   GET = 1;
   DELETE = 2;
   SHUTDOWN = 3;
 }
 
-message DBEventRequest {
-  DBEventType type = 1;
+message CommandEventRequest {
+  CommandEventType type = 1;
   string key = 2;  // Used for SET, GET, DELETE
   oneof value {
     string string_value = 3;
@@ -25,8 +25,8 @@ message DBEventRequest {
   bool only_if_present = 9;  // Only used for SET
 }
 
-message DBEventResponse {
-  DBEventType type = 1;
+message CommandEventResponse {
+  CommandEventType type = 1;
   bool success = 2;
   oneof value {
     string string_value = 3;
@@ -38,6 +38,6 @@ message DBEventResponse {
   string error_message = 8;  // Only populated on error
 }
 
-service DBEventService {
-  rpc EnqueueDBEvent(DBEventRequest) returns (DBEventResponse);
+service CommandEventService {
+  rpc ProcessCommandEvent(CommandEventRequest) returns (CommandEventResponse);
 }

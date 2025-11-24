@@ -1,2 +1,2 @@
-database:
+command:
   password: ${APP_DATABASE_PASSWORD}
