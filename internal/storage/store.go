@@ -1,0 +1,54 @@
+package storage
+
+import "sync"
+
+type Store struct {
+	kvStore map[string]any
+	mu      sync.RWMutex
+}
+
+func NewStore() *Store {
+	return &Store{
+		kvStore: make(map[string]any),
+	}
+}
+
+func (s *Store) Set(key string, value any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.kvStore[key] = value
+}
+
+func (s *Store) Get(key string) (any, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	v, ok := s.kvStore[key]
+	return v, ok
+}
+
+func (s *Store) Delete(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.kvStore, key)
+}
+
+func (s *Store) DescribeType(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	v, ok := s.kvStore[key]
+	if !ok {
+		return "missing"
+	}
+
+	switch v.(type) {
+	case string:
+		return "string"
+	case int:
+		return "int"
+	case float64:
+		return "float64"
+	default:
+		return "unknown"
+	}
+}
