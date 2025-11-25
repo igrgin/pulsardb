@@ -1,16 +1,15 @@
-package util
+package command
 
-type StorageEventStatus int
+type TaskStatus int
 
 const (
-	Pending StorageEventStatus = iota
+	Pending TaskStatus = iota
 	Active
 	Completed
 	Failed
 )
 
-// String makes Status implement the fmt.Stringer interface for pretty printing.
-func (s StorageEventStatus) String() string {
+func (s TaskStatus) String() string {
 	switch s {
 	case Pending:
 		return "Pending"

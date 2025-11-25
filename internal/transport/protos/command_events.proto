@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package command_events;
+
+option go_package = "github.com/igrgin/pulsardb/transport/gen/command_events;command_events";
+
+enum CommandEventType {
+  SET = 0;
+  GET = 1;
+  DELETE = 2;
+}
+
+message CommandEventValue {
+  oneof value {
+    string string_value = 3;
+    int64  int_value    = 4;
+    double double_value = 5;
+    bool   bool_value   = 6;
+    bytes  bytes_value  = 7;
+  }
+}
+
+message CommandEventRequest {
+  CommandEventType type = 1;
+  string key = 2;  // Used for SET, GET, DELETE
+  CommandEventValue cmd_value = 3; // Only used for SET
+  map<string, string> extra_attributes = 4;
+
+}
+
+message CommandEventResponse {
+  CommandEventType type = 1;
+  bool success = 2;
+  CommandEventValue cmd_value = 3; // Only used for GET
+  string error_message = 4;  // Only populated on error
+}
+
+service CommandEventService {
+  rpc ProcessCommandEvent(CommandEventRequest) returns (CommandEventResponse);
+}

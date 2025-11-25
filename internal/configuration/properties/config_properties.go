@@ -1,7 +1,8 @@
 package properties
 
 type ApplicationConfigProperties struct {
-	Profile string `yaml:"profile"`
+	Profile  string `yaml:"profile"`
+	LogLevel string `yaml:"log-level"`
 }
 
 type TransportConfigProperties struct {

@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.33.1
-// source: command_event.proto
+// source: command_events.proto
 
-package command_event
+package command_events
 
 import (
 	context "context"
@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CommandEventService_ProcessCommandEvent_FullMethodName = "/command_event.CommandEventService/ProcessCommandEvent"
+	CommandEventService_ProcessCommandEvent_FullMethodName = "/command_events.CommandEventService/ProcessCommandEvent"
 )
 
 // CommandEventServiceClient is the client API for CommandEventService service.
@@ -108,7 +108,7 @@ func _CommandEventService_ProcessCommandEvent_Handler(srv interface{}, ctx conte
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var CommandEventService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "command_event.CommandEventService",
+	ServiceName: "command_events.CommandEventService",
 	HandlerType: (*CommandEventServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -117,5 +117,5 @@ var CommandEventService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "command_event.proto",
+	Metadata: "command_events.proto",
 }

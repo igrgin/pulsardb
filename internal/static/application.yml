@@ -1,5 +1,6 @@
 app:
   profile: local
+  log-level: info
 
 transport:
   network: tcp

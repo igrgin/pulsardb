@@ -1,2 +1,2 @@
 command:
-  password: ${APP_DATABASE_PASSWORD}
+  queue-size: 1000
