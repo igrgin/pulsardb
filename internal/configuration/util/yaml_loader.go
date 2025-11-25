@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 )
 
 func LoadAndExpandYaml(baseDir, filename string) (string, error) {
@@ -24,18 +23,4 @@ func LoadAndExpandYaml(baseDir, filename string) (string, error) {
 	}
 
 	return expanded, nil
-}
-
-func ExpandEnvStrict(s string) (string, error) {
-	re := regexp.MustCompile(`\${([^}]+)}`)
-
-	matches := re.FindAllStringSubmatch(s, -1)
-	for _, m := range matches {
-		name := m[1]
-		if _, ok := os.LookupEnv(name); !ok {
-			return "", fmt.Errorf("environment variable %s is not set", name)
-		}
-	}
-
-	return os.ExpandEnv(s), nil
 }

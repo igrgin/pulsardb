@@ -1,0 +1,12 @@
+app:
+  profile: local
+  log-level: info
+
+transport:
+  network: tcp
+  address: localhost
+  port: 50051
+  timeout: 20
+
+command:
+  queue-size: 20

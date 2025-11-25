@@ -1,33 +1,67 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/signal"
-	"pulsardb/config/initializer"
-	"pulsardb/server"
+	"pulsardb/internal/command"
+	"pulsardb/internal/configuration"
+	"pulsardb/internal/configuration/properties"
+	logging "pulsardb/internal/logging"
+	"pulsardb/internal/storage"
+	"pulsardb/internal/transport"
+	"pulsardb/internal/transport/gen"
 	"syscall"
 )
 
 func main() {
-	AppConfig, err := initializer.Initialize("config/base",
-		"config/profiles", "info")
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	defer cancel()
 
+	config, err := configuration.Load()
 	if err != nil {
-		slog.Error("failed to initialize configuration", "error", err)
-		os.Exit(1)
+		slog.Error("Failed to initialize application context", "Error", err)
+		return
 	}
 
-	slog.Info("starting application...")
+	logging.Init(config.Application.LogLevel)
+	slog.Info("Starting database...")
 
-	lis, s, err := server.Start(AppConfig.Server.Network, ":"+AppConfig.Server.Port)
+	cfgProvider := properties.NewProvider(config)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	slog.Info("application started")
-	<-quit
+	storageService := storage.NewStorageService()
 
-	slog.Info("shutting down server...")
-	s.GracefulStop()
-	lis.Close()
+	commandConfig := cfgProvider.GetCommand()
+	cmdService := command.NewCommandService(commandConfig)
+
+	setHandler := command.NewSetHandler(storageService)
+	getHandler := command.NewGetHandler(storageService)
+	deleteHandler := command.NewDeleteHandler(storageService)
+
+	commandHandlers := map[command_events.CommandEventType]command.Handler{
+		command_events.CommandEventType_SET:    setHandler,
+		command_events.CommandEventType_GET:    getHandler,
+		command_events.CommandEventType_DELETE: deleteHandler,
+	}
+
+	taskExecutor := command.NewTaskExecutor(cmdService, commandHandlers)
+	go taskExecutor.Execute()
+
+	serverConfig := cfgProvider.GetTransport()
+	transportService := transport.NewTransportService(serverConfig, cmdService)
+
+	_, err = transportService.StartServer()
+	if err != nil {
+		slog.Error("Failed to start transport server", "Error", err)
+		return
+	}
+
+	slog.Info("Database Ready")
+	<-ctx.Done()
+
+	transportService.Server.GracefulStop()
+	taskExecutor.Stop()
+	slog.Info("Shutting down database...")
 }

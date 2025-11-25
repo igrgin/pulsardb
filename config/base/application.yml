@@ -1,6 +1,0 @@
-meta:
-  profile: "local"
-
-server:
-  network: tcp
-  port: 50051

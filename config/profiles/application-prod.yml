@@ -1,2 +1,0 @@
-database:
-  password: ${APP_DATABASE_PASSWORD}
