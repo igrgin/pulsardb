@@ -8,7 +8,7 @@ import (
 	"pulsardb/internal/command"
 	"pulsardb/internal/configuration/properties"
 	"pulsardb/internal/raft"
-	raft_events "pulsardb/internal/raft/gen"
+	raftevents "pulsardb/internal/raft/gen"
 	"pulsardb/internal/transport/endpoint"
 	"pulsardb/internal/transport/gen"
 	"time"
@@ -72,7 +72,7 @@ func (ts *Service) StartServer() (net.Listener, net.Listener, error) {
 
 	// Raft transport service
 	if ts.raftNode != nil {
-		raft_events.RegisterRaftTransportServiceServer(ts.Server, endpoint.NewRaftTransportServer(ts.raftNode))
+		raftevents.RegisterRaftTransportServiceServer(ts.Server, endpoint.NewRaftTransportServer(ts.raftNode))
 	}
 
 	reflection.Register(ts.Server)

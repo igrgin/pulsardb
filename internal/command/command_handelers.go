@@ -3,7 +3,6 @@ package command
 import (
 	"fmt"
 	"pulsardb/internal/storage"
-	"pulsardb/internal/transport/gen"
 )
 
 type Handler interface {
@@ -34,60 +33,9 @@ func NewDeleteHandler(s *storage.Service) *DeleteHandler {
 	return &DeleteHandler{storageService: s}
 }
 
-func valueFromProto(v *command_events.CommandEventValue) any {
-	if v == nil {
-		return nil
-	}
-	switch val := v.GetValue().(type) {
-	case *command_events.CommandEventValue_StringValue:
-		return val.StringValue
-	case *command_events.CommandEventValue_IntValue:
-		return val.IntValue
-	case *command_events.CommandEventValue_DoubleValue:
-		return val.DoubleValue
-	case *command_events.CommandEventValue_BoolValue:
-		return val.BoolValue
-	case *command_events.CommandEventValue_BytesValue:
-		return val.BytesValue
-	default:
-		return nil
-	}
-}
-
-func valueToProto(a any) *command_events.CommandEventValue {
-	switch v := a.(type) {
-	case string:
-		return &command_events.CommandEventValue{
-			Value: &command_events.CommandEventValue_StringValue{StringValue: v},
-		}
-	case int:
-		return &command_events.CommandEventValue{
-			Value: &command_events.CommandEventValue_IntValue{IntValue: int64(v)},
-		}
-	case int64:
-		return &command_events.CommandEventValue{
-			Value: &command_events.CommandEventValue_IntValue{IntValue: v},
-		}
-	case float64:
-		return &command_events.CommandEventValue{
-			Value: &command_events.CommandEventValue_DoubleValue{DoubleValue: v},
-		}
-	case bool:
-		return &command_events.CommandEventValue{
-			Value: &command_events.CommandEventValue_BoolValue{BoolValue: v},
-		}
-	case []byte:
-		return &command_events.CommandEventValue{
-			Value: &command_events.CommandEventValue_BytesValue{BytesValue: v},
-		}
-	default:
-		return nil
-	}
-}
-
 func (h *SetHandler) Handle(task *CmdTask) (*CmdTask, error) {
 	req := task.event
-	val := valueFromProto(req.GetCmdValue())
+	val := ValueFromProto(req.GetCmdValue()) // Use exported function
 
 	h.storageService.Set(req.GetKey(), val)
 
@@ -103,7 +51,7 @@ func (h *GetHandler) Handle(task *CmdTask) (*CmdTask, error) {
 		return task, fmt.Errorf("key `%s` not found", req.GetKey())
 	}
 
-	req.CmdValue = valueToProto(stored)
+	req.CmdValue = ValueToProto(stored) // Use exported function
 	task.status = Completed
 	return task, nil
 }

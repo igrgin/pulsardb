@@ -3,6 +3,7 @@ package raft
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,47 +15,39 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-// Filenames for side-car state.
 const (
 	hardStateFolder = "hard_state"
 	snapshotFolder  = "snapshot"
 	walFolder       = "wal"
+	confStateFolder = "conf_state"
 )
 
 type Storage struct {
 	mu sync.Mutex
 
-	dir string   // base directory for this Node
-	log *wal.Log // tidwall WAL
+	dir string
+	log *wal.Log
 	ms  *etcdraft.MemoryStorage
 
-	hs   raftpb.HardState
-	snap raftpb.Snapshot
+	hs        raftpb.HardState
+	snap      raftpb.Snapshot
+	confState raftpb.ConfState
 }
 
 // OpenStorage opens or creates a Storage in the given directory.
-// It loads snapshot + hardstate and then replays WAL into MemoryStorage.
 func OpenStorage(dir string) (*Storage, uint64, error) {
-	format := "mkdir %s: %w"
+	format := "mkdir %s:  %w"
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, 0, fmt.Errorf(format, dir, err)
 	}
 
-	if err := os.MkdirAll(path.Join(dir, walFolder), 0o750); err != nil {
-		return nil, 0, fmt.Errorf(format, dir, err)
+	for _, folder := range []string{walFolder, snapshotFolder, hardStateFolder, confStateFolder} {
+		if err := os.MkdirAll(path.Join(dir, folder), 0o750); err != nil {
+			return nil, 0, fmt.Errorf(format, path.Join(dir, folder), err)
+		}
 	}
 
-	if err := os.MkdirAll(path.Join(dir, snapshotFolder), 0o750); err != nil {
-		return nil, 0, fmt.Errorf(format, dir, err)
-	}
-
-	if err := os.MkdirAll(path.Join(dir, hardStateFolder), 0o750); err != nil {
-		return nil, 0, fmt.Errorf(format, dir, err)
-	}
-
-	// Open WAL with AllowEmpty=true so we can truncate to empty safely.
 	opts := *wal.DefaultOptions
-
 	walPath := filepath.Join(dir, walFolder)
 
 	log, err := wal.Open(walPath, &opts)
@@ -68,6 +61,7 @@ func OpenStorage(dir string) (*Storage, uint64, error) {
 		ms:  etcdraft.NewMemoryStorage(),
 	}
 
+	// Load in correct order:  snapshot first, then hardstate, then confstate, then WAL
 	if err := s.loadSnapshot(); err != nil {
 		s.log.Close()
 		return nil, 0, err
@@ -76,21 +70,110 @@ func OpenStorage(dir string) (*Storage, uint64, error) {
 		s.log.Close()
 		return nil, 0, err
 	}
+	if err := s.loadConfState(); err != nil {
+		s.log.Close()
+		return nil, 0, err
+	}
 	if err := s.replayWAL(); err != nil {
 		s.log.Close()
 		return nil, 0, err
 	}
 
-	idx, _ := s.log.LastIndex()
-	return s, idx, nil
+	// CRITICAL: Apply confState to MemoryStorage so raft knows about voters!
+	if err := s.applyConfStateToMemoryStorage(); err != nil {
+		s.log.Close()
+		return nil, 0, err
+	}
+
+	var lastIndex uint64
+	if last, err := s.ms.LastIndex(); err == nil {
+		lastIndex = last
+	}
+
+	return s, lastIndex, nil
 }
 
-// RaftStorage returns the etcdraft.Storage implementation you pass into etcdraft.Config.Storage.
+// applyConfStateToMemoryStorage creates a dummy snapshot with confState
+// so that raft's MemoryStorage knows about the cluster configuration.
+func (s *Storage) applyConfStateToMemoryStorage() error {
+	if len(s.confState.Voters) == 0 {
+		return nil // No confState to apply
+	}
+
+	// Get the current snapshot from memory storage
+	existingSnap, err := s.ms.Snapshot()
+	if err != nil {
+		return fmt.Errorf("get existing snapshot: %w", err)
+	}
+
+	// If existing snapshot already has confState, we're good
+	if len(existingSnap.Metadata.ConfState.Voters) > 0 {
+		slog.Debug("MemoryStorage already has confState",
+			"voters", existingSnap.Metadata.ConfState.Voters,
+		)
+		return nil
+	}
+
+	// We need to create a snapshot with the confState
+	// Use the last applied index from hardstate or existing snapshot
+	snapIndex := existingSnap.Metadata.Index
+	snapTerm := existingSnap.Metadata.Term
+
+	if s.hs.Commit > snapIndex {
+		snapIndex = s.hs.Commit
+		snapTerm = s.hs.Term
+	}
+
+	// If we have no index, use index 0 (initial state)
+	// The confState still needs to be set
+	newSnap := raftpb.Snapshot{
+		Metadata: raftpb.SnapshotMetadata{
+			Index:     snapIndex,
+			Term:      snapTerm,
+			ConfState: s.confState,
+		},
+		Data: existingSnap.Data, // Preserve any existing snapshot data
+	}
+
+	if err := s.ms.ApplySnapshot(newSnap); err != nil && !errors.Is(err, etcdraft.ErrSnapOutOfDate) {
+		return fmt.Errorf("apply confState snapshot: %w", err)
+	}
+
+	// Re-apply hardstate after snapshot
+	if !etcdraft.IsEmptyHardState(s.hs) {
+		if err := s.ms.SetHardState(s.hs); err != nil {
+			return fmt.Errorf("re-set hardstate: %w", err)
+		}
+	}
+
+	// Re-replay WAL entries after snapshot (they may have been cleared)
+	if err := s.replayWAL(); err != nil {
+		return fmt.Errorf("re-replay WAL: %w", err)
+	}
+
+	slog.Info("applied confState to MemoryStorage",
+		"voters", s.confState.Voters,
+		"learners", s.confState.Learners,
+		"snap_index", snapIndex,
+		"snap_term", snapTerm,
+	)
+
+	return nil
+}
+
+// ConfState returns the current cluster membership configuration.
+func (s *Storage) ConfState() raftpb.ConfState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.confState
+}
+
+// RaftStorage returns the etcdraft.Storage implementation.
 func (s *Storage) RaftStorage() *etcdraft.MemoryStorage {
 	return s.ms
 }
 
-// Close closes the wal and releases resources.
+// Close closes the WAL and releases resources.
 func (s *Storage) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,77 +188,99 @@ func (s *Storage) Close() error {
 func (s *Storage) loadSnapshot() error {
 	dir := filepath.Join(s.dir, snapshotFolder)
 
-	entries, err := os.ReadDir(dir)
+	fileName, err := s.findSingleFile(dir)
 	if err != nil {
-		return fmt.Errorf("read snapshot dir: %w", err)
-	}
-	var fileName string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if fileName != "" {
-			return fmt.Errorf("multiple snapshot files in %s", dir)
-		}
-		fileName = e.Name()
+		return err
 	}
 	if fileName == "" {
-		// No snapshot file present.
 		return nil
 	}
-	dir = filepath.Join(dir, fileName)
 
-	data, err := os.ReadFile(dir)
+	data, err := os.ReadFile(filepath.Join(dir, fileName))
 	if err != nil {
-		return fmt.Errorf("read snapshot: %w", err)
+		return fmt.Errorf("read snapshot:  %w", err)
 	}
 
 	pbutil.MustUnmarshal(&s.snap, data)
 
-	// Apply snapshot to in-memory storage.
 	if err := s.ms.ApplySnapshot(s.snap); err != nil && !errors.Is(err, etcdraft.ErrSnapOutOfDate) {
 		return fmt.Errorf("ApplySnapshot: %w", err)
 	}
+
+	// Also restore confState from snapshot if present
+	if len(s.snap.Metadata.ConfState.Voters) > 0 || len(s.snap.Metadata.ConfState.Learners) > 0 {
+		s.confState = s.snap.Metadata.ConfState
+	}
+
+	slog.Debug("loaded snapshot",
+		"index", s.snap.Metadata.Index,
+		"term", s.snap.Metadata.Term,
+		"voters", s.snap.Metadata.ConfState.Voters,
+	)
+
 	return nil
 }
 
 func (s *Storage) loadHardState() error {
 	dir := filepath.Join(s.dir, hardStateFolder)
 
-	entries, err := os.ReadDir(dir)
+	fileName, err := s.findSingleFile(dir)
 	if err != nil {
-		return fmt.Errorf("read snapshot dir: %w", err)
-	}
-	var fileName string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if fileName != "" {
-			return fmt.Errorf("multiple snapshot files in %s", dir)
-		}
-		fileName = e.Name()
+		return err
 	}
 	if fileName == "" {
 		return nil
 	}
-	dir = filepath.Join(dir, fileName)
 
-	data, err := os.ReadFile(dir)
+	data, err := os.ReadFile(filepath.Join(dir, fileName))
 	if err != nil {
 		return fmt.Errorf("read hardstate: %w", err)
 	}
+
 	pbutil.MustUnmarshal(&s.hs, data)
 	if err := s.ms.SetHardState(s.hs); err != nil {
-		return fmt.Errorf("failed to set hardstate with error: %v", err)
+		return fmt.Errorf("failed to set hardstate: %w", err)
 	}
+
+	slog.Debug("loaded hardstate",
+		"term", s.hs.Term,
+		"vote", s.hs.Vote,
+		"commit", s.hs.Commit,
+	)
+
+	return nil
+}
+
+func (s *Storage) loadConfState() error {
+	dir := filepath.Join(s.dir, confStateFolder)
+
+	fileName, err := s.findSingleFile(dir)
+	if err != nil {
+		return err
+	}
+	if fileName == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, fileName))
+	if err != nil {
+		return fmt.Errorf("read confstate: %w", err)
+	}
+
+	pbutil.MustUnmarshal(&s.confState, data)
+
+	slog.Debug("loaded confState",
+		"voters", s.confState.Voters,
+		"learners", s.confState.Learners,
+	)
+
 	return nil
 }
 
 func (s *Storage) replayWAL() error {
 	empty, err := s.log.IsEmpty()
 	if err != nil {
-		return fmt.Errorf("wal.IsRaftStorageEmpty: %w", err)
+		return fmt.Errorf("wal.IsEmpty: %w", err)
 	}
 	if empty {
 		return nil
@@ -196,16 +301,11 @@ func (s *Storage) replayWAL() error {
 	for idx := first; idx <= last; idx++ {
 		data, err := s.log.Read(idx)
 		if err != nil {
-			if errors.Is(err, wal.ErrNotFound) || errors.Is(err, wal.ErrCorrupt) {
-				// In a real system you might want to attempt recovery here.
-				return fmt.Errorf("wal.Read(%d): %w", idx, err)
-			}
 			return fmt.Errorf("wal.Read(%d): %w", idx, err)
 		}
 		var e raftpb.Entry
 		pbutil.MustUnmarshal(&e, data)
 		if e.Index <= snapIndex {
-			// Already reflected in snapshot.
 			continue
 		}
 		ents = append(ents, e)
@@ -215,22 +315,71 @@ func (s *Storage) replayWAL() error {
 		if err := s.ms.Append(ents); err != nil {
 			return fmt.Errorf("MemoryStorage.Append: %w", err)
 		}
+		slog.Debug("replayed WAL to MemoryStorage",
+			"count", len(ents),
+			"first", ents[0].Index,
+			"last", ents[len(ents)-1].Index,
+		)
 	}
 
 	return nil
 }
 
+// EntriesAfter returns all committed entries after the given index.
+func (s *Storage) EntriesAfter(afterIndex uint64) ([]raftpb.Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	empty, err := s.log.IsEmpty()
+	if err != nil {
+		return nil, fmt.Errorf("wal.IsEmpty: %w", err)
+	}
+	if empty {
+		return nil, nil
+	}
+
+	first, err := s.log.FirstIndex()
+	if err != nil {
+		return nil, fmt.Errorf("wal.FirstIndex: %w", err)
+	}
+	last, err := s.log.LastIndex()
+	if err != nil {
+		return nil, fmt.Errorf("wal.LastIndex: %w", err)
+	}
+
+	startIdx := afterIndex + 1
+	if startIdx < first {
+		startIdx = first
+	}
+
+	if startIdx > last {
+		return nil, nil
+	}
+
+	commitIndex := s.hs.Commit
+	if commitIndex == 0 || commitIndex < startIdx {
+		return nil, nil
+	}
+	if last > commitIndex {
+		last = commitIndex
+	}
+
+	var entries []raftpb.Entry
+	for idx := startIdx; idx <= last; idx++ {
+		data, err := s.log.Read(idx)
+		if err != nil {
+			return nil, fmt.Errorf("wal.Read(%d): %w", idx, err)
+		}
+		var e raftpb.Entry
+		pbutil.MustUnmarshal(&e, data)
+		entries = append(entries, e)
+	}
+
+	return entries, nil
+}
+
 // ---------- Persist Ready from etcdraft.Node ----------
 
-// SaveReady persists the parts of etcdraft.Ready that must go to stable storage:
-//
-//   - Snapshot (if non-empty)
-//   - Entries
-//   - HardState
-//
-// It then applies the same changes to MemoryStorage.
-//
-// Call this before sending rd.Messages, in line with the Ready contract. :contentReference[oaicite:3]{index=3}
 func (s *Storage) SaveReady(rd etcdraft.Ready) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -240,10 +389,10 @@ func (s *Storage) SaveReady(rd etcdraft.Ready) error {
 		if err := s.saveSnapshot(rd.Snapshot); err != nil {
 			return err
 		}
-		// Update in-memory snapshot.
-		if err := s.ms.ApplySnapshot(rd.Snapshot); err != nil && err != etcdraft.ErrSnapOutOfDate {
+		if err := s.ms.ApplySnapshot(rd.Snapshot); err != nil && !errors.Is(err, etcdraft.ErrSnapOutOfDate) {
 			return fmt.Errorf("ApplySnapshot: %w", err)
 		}
+		s.confState = rd.Snapshot.Metadata.ConfState
 	}
 
 	// 2) Entries
@@ -251,9 +400,8 @@ func (s *Storage) SaveReady(rd etcdraft.Ready) error {
 		if err := s.appendToWAL(rd.Entries); err != nil {
 			return err
 		}
-		// Append to in-memory log.
 		if err := s.ms.Append(rd.Entries); err != nil {
-			return fmt.Errorf("MemoryStorage.Append: %w", err)
+			return fmt.Errorf("MemoryStorage. Append: %w", err)
 		}
 	}
 
@@ -264,26 +412,46 @@ func (s *Storage) SaveReady(rd etcdraft.Ready) error {
 				return err
 			}
 			s.hs = rd.HardState
-			err := s.ms.SetHardState(rd.HardState)
-			if err != nil {
-				return fmt.Errorf("failed to set hardstate with error: %v", err)
+			if err := s.ms.SetHardState(rd.HardState); err != nil {
+				return fmt.Errorf("failed to set hardstate: %w", err)
 			}
 		}
 	}
 
-	// 4) Sync if required.
+	// 4) Sync if required
 	if rd.MustSync {
 		if err := s.log.Sync(); err != nil {
 			return fmt.Errorf("wal.Sync: %w", err)
 		}
-		// In a real system, you should also fsync the state/snapshot files.
 	}
 
 	return nil
 }
 
-// appendToWAL appends (or overwrites) entries in the tidwall/wal.Log.
-// It handles conflicting entries by truncating the WAL tail before writing new entries.
+// SaveConfState persists the cluster membership.
+func (s *Storage) SaveConfState(cs raftpb.ConfState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveConfState(cs)
+}
+
+// SaveSnapshot persists a snapshot to disk.
+func (s *Storage) SaveSnapshot(snap raftpb.Snapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveSnapshot(snap)
+}
+
+func (s *Storage) saveConfState(cs raftpb.ConfState) error {
+	confStatePath := filepath.Join(s.dir, confStateFolder, "current")
+	data := pbutil.MustMarshal(&cs)
+	if err := atomicWriteFile(confStatePath, data, 0o640); err != nil {
+		return fmt.Errorf("write confstate: %w", err)
+	}
+	s.confState = cs
+	return nil
+}
+
 func (s *Storage) appendToWAL(ents []raftpb.Entry) error {
 	if len(ents) == 0 {
 		return nil
@@ -294,7 +462,7 @@ func (s *Storage) appendToWAL(ents []raftpb.Entry) error {
 
 	empty, err := s.log.IsEmpty()
 	if err != nil {
-		return fmt.Errorf("wal.IsRaftStorageEmpty: %w", err)
+		return fmt.Errorf("wal.IsEmpty: %w", err)
 	}
 
 	if !empty {
@@ -303,7 +471,6 @@ func (s *Storage) appendToWAL(ents []raftpb.Entry) error {
 			return fmt.Errorf("wal.LastIndex: %w", err)
 		}
 
-		// If we already have entries at or after firstNew, remove them.
 		if last >= firstNew {
 			if err := s.log.TruncateBack(firstNew - 1); err != nil {
 				return fmt.Errorf("wal.TruncateBack(%d): %w", firstNew-1, err)
@@ -311,13 +478,11 @@ func (s *Storage) appendToWAL(ents []raftpb.Entry) error {
 			last = firstNew - 1
 		}
 
-		// Now log must be positioned so that next index is last+1 == firstNew.
 		if last+1 != firstNew {
 			return fmt.Errorf("wal append gap: last=%d, firstNew=%d", last, firstNew)
 		}
 	}
 
-	// Append entries one by one; you can batch with wal.Batch if desired.
 	for _, e := range ents {
 		data := pbutil.MustMarshal(&e)
 		if err := s.log.Write(e.Index, data); err != nil {
@@ -325,7 +490,6 @@ func (s *Storage) appendToWAL(ents []raftpb.Entry) error {
 		}
 	}
 
-	// Optional: sanity check that WAL last index is what we expect.
 	if last, err := s.log.LastIndex(); err == nil && last != lastNew {
 		return fmt.Errorf("wal last index mismatch: got=%d want=%d", last, lastNew)
 	}
@@ -333,43 +497,45 @@ func (s *Storage) appendToWAL(ents []raftpb.Entry) error {
 	return nil
 }
 
-// saveHardState writes HardState to a side file.
 func (s *Storage) saveHardState(hs raftpb.HardState) error {
-	// Write into a concrete file inside the hard_state folder.
-	path := filepath.Join(s.dir, hardStateFolder, "current")
+	hardStatePath := filepath.Join(s.dir, hardStateFolder, "current")
 	data := pbutil.MustMarshal(&hs)
-	if err := atomicWriteFile(path, data, 0o640); err != nil {
-		return fmt.Errorf("write hardstate: %w", err)
+	if err := atomicWriteFile(hardStatePath, data, 0o640); err != nil {
+		return fmt.Errorf("write hardstate:  %w", err)
 	}
 	return nil
 }
 
-// saveSnapshot writes Snapshot to a side file.
-// You can also trigger log truncation here if you want to reclaim disk space.
 func (s *Storage) saveSnapshot(snap raftpb.Snapshot) error {
-	path := filepath.Join(s.dir, snapshotFolder, "current")
+	snapshotPath := filepath.Join(s.dir, snapshotFolder, "current")
 	data := pbutil.MustMarshal(&snap)
-	if err := atomicWriteFile(path, data, 0o640); err != nil {
+	if err := atomicWriteFile(snapshotPath, data, 0o640); err != nil {
 		return fmt.Errorf("write snapshot: %w", err)
 	}
-
-	// OPTIONAL: truncate WAL front to drop entries <= snapshot index.
-	// Be careful not to truncate away *all* entries (see ErrOutOfRange docs). :contentReference[oaicite:4]{index=4}
-	//
-	// last, err := s.log.LastIndex()
-	// if err == nil && last > snap.Metadata.Index {
-	//     if err := s.log.TruncateFront(snap.Metadata.Index + 1); err != nil {
-	//         return fmt.Errorf("wal.TruncateFront(%d): %w", snap.Metadata.Index+1, err)
-	//     }
-	// }
-
 	s.snap = snap
 	return nil
 }
 
-// ---------- small helpers ----------
+// ---------- helpers ----------
 
-// atomicWriteFile writes a file atomically via a temp file + rename.
+func (s *Storage) findSingleFile(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("read dir %s: %w", dir, err)
+	}
+	var fileName string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if fileName != "" {
+			return "", fmt.Errorf("multiple files in %s", dir)
+		}
+		fileName = e.Name()
+	}
+	return fileName, nil
+}
+
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
@@ -395,7 +561,6 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return err
 	}
-	// Optional: fsync directory for extra safety.
 	if f, err := os.Open(dir); err == nil {
 		defer f.Close()
 		_ = f.Sync()
@@ -410,7 +575,7 @@ func isHardStateEqual(a, b raftpb.HardState) bool {
 func (s *Storage) IsStorageEmpty() (bool, error) {
 	emptyLog, err := s.log.IsEmpty()
 	if err != nil {
-		return false, fmt.Errorf("failed to check if raft log is empty with error: %v", err)
+		return false, fmt.Errorf("failed to check if raft log is empty: %w", err)
 	}
 
 	if !etcdraft.IsEmptyHardState(s.hs) {
@@ -418,6 +583,10 @@ func (s *Storage) IsStorageEmpty() (bool, error) {
 	}
 
 	if !etcdraft.IsEmptySnap(s.snap) {
+		return false, nil
+	}
+
+	if len(s.confState.Voters) > 0 {
 		return false, nil
 	}
 

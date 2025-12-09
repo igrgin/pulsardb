@@ -30,20 +30,26 @@ func main() {
 	logging.Init(config.Application.LogLevel)
 	slog.Info("Starting database...")
 
+	// Initialize services
 	storageService := storage.NewStorageService()
 	cmdService := command.NewCommandService(commandConfig)
 
+	// Create command handlers
 	setHandler := command.NewSetHandler(storageService)
 	getHandler := command.NewGetHandler(storageService)
 	deleteHandler := command.NewDeleteHandler(storageService)
 
-	raftNode, err := raft.NewRaftNode(raftConfig, storageService, cmdService, net.JoinHostPort(transportConfig.Address, transportConfig.RaftPort))
+	// Create raft node (renamed from NewRaftNode to NewNode)
+	raftAddr := net.JoinHostPort(transportConfig.Address, transportConfig.RaftPort)
+	raftNode, err := raft.NewNode(raftConfig, storageService, cmdService, raftAddr)
 	if err != nil {
-		slog.Error("Failed to start node with error", "ERROR", err)
+		slog.Error("Failed to create raft node", "error", err)
 		return
 	}
 
-	status := raftNode.Node.Status()
+	// Log initial status (access underlying raft node via RawNode)
+	rawNode := raftNode.RawNode()
+	status := (*rawNode).Status()
 	slog.Info("raft status on startup",
 		"id", raftNode.Id,
 		"state", status.RaftState.String(),
@@ -51,29 +57,41 @@ func main() {
 		"lead", status.Lead,
 		"voters", status.Config.Voters,
 	)
-	raftNode.StartLoop()
 
+	raftNode.Start()
+
+	// Register command handlers
 	commandHandlers := map[command_events.CommandEventType]command.Handler{
 		command_events.CommandEventType_SET:    setHandler,
 		command_events.CommandEventType_GET:    getHandler,
 		command_events.CommandEventType_DELETE: deleteHandler,
 	}
 
+	// Start task executor
 	taskExecutor := command.NewTaskExecutor(cmdService, commandHandlers)
 	go taskExecutor.Execute()
 
+	// Start transport server
 	transportService := transport.NewTransportService(transportConfig, cmdService, raftNode)
-
 	_, _, err = transportService.StartServer()
 	if err != nil {
-		slog.Error("Failed to start transport server", "Error", err)
+		slog.Error("Failed to start transport server", "error", err)
+		raftNode.Stop()
 		return
 	}
 
 	slog.Info("Database Ready")
+
+	// Wait for shutdown signal
 	<-ctx.Done()
 
+	// Graceful shutdown
+	slog.Info("Shutting down database...")
+
+	// Stop in reverse order of startup
 	transportService.Server.GracefulStop()
 	taskExecutor.Stop()
-	slog.Info("Shutting down database...")
+	raftNode.Stop() // renamed from StopLoop to Stop
+
+	slog.Info("Database shutdown complete")
 }

@@ -3,72 +3,102 @@ package raft
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	raftevents "pulsardb/internal/raft/gen"
-	commandevents "pulsardb/internal/transport/gen"
 	"time"
+
+	raftevents "pulsardb/internal/raft/gen"
 
 	"go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
 )
 
-// initPeerClients dials all peers and creates gRPC clients.
-func (n *Node) initPeerClients() error {
+const sendTimeout = 5 * time.Second
+
+// sendMessages sends raft messages to peers concurrently.
+func (n *Node) sendMessages(msgs []raftpb.Message) {
+	for _, msg := range msgs {
+		if msg.To == 0 {
+			continue
+		}
+		go n.sendMessage(msg)
+	}
+}
+
+// sendMessage sends a single raft message to a peer.
+func (n *Node) sendMessage(msg raftpb.Message) {
+	n.mu.RLock()
+	client, ok := n.clients[msg.To]
+	n.mu.RUnlock()
+
+	if !ok {
+		slog.Warn("no client for peer",
+			"to", msg.To,
+			"type", msg.Type.String(),
+		)
+		n.raftNode.ReportUnreachable(msg.To)
+		return
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("failed to marshal raft message",
+			"to", msg.To,
+			"type", msg.Type.String(),
+			"error", err,
+		)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	defer cancel()
+
+	if _, err := client.SendRaftMessage(ctx, &raftevents.RaftMessage{Data: data}); err != nil {
+		slog.Debug("failed to send raft message",
+			"to", msg.To,
+			"type", msg.Type.String(),
+			"error", err,
+		)
+		n.raftNode.ReportUnreachable(msg.To)
+	}
+}
+
+// initAllPeerClients initializes gRPC clients for all configured peers.
+func (n *Node) initAllPeerClients() error {
 	for id, addr := range n.peers {
 		if id == n.Id {
 			continue
 		}
-		conn, err := dialRaftPeer(addr)
-		if err != nil {
-			return fmt.Errorf("failed to dial peer %d at %s: %w", id, addr, err)
-		}
-
-		raftClient := raftevents.NewRaftTransportServiceClient(conn)
-		cmdClient := commandevents.NewCommandEventServiceClient(conn)
-
-		n.clients[id] = &combinedClient{
-			raftClient:    raftClient,
-			commandClient: cmdClient,
+		if err := n.initPeerClient(id, addr); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// sendMessages delivers raftpb.Message slice to peers via gRPC.
-func (n *Node) sendMessages(msgs []raftpb.Message) {
-	for _, m := range msgs {
-		if m.To == 0 || m.To == n.Id {
-			continue
-		}
-
-		client, ok := n.clients[m.To]
-		if !ok {
-			slog.Error("missing raft client for peer", "to", m.To)
-			continue
-		}
-
-		data, err := json.Marshal(&m)
-		if err != nil {
-			slog.Error("failed to marshal raft message", "error", err)
-			continue
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, err = client.SendRaftMessage(ctx, &raftevents.RaftMessage{Data: data})
-		cancel()
-		if err != nil {
-			slog.Error("failed to send raft message", "to", m.To, "error", err)
-		}
+// initPeerClient creates a gRPC client for a single peer.
+func (n *Node) initPeerClient(id uint64, addr string) error {
+	conn, err := grpc.NewClient(addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return err
 	}
+
+	client := newCombinedClient(conn)
+
+	n.mu.Lock()
+	n.clients[id] = client
+	n.mu.Unlock()
+
+	slog.Debug("initialized peer client", "peer_id", id, "addr", addr)
+	return nil
 }
 
-func dialRaftPeer(addr string) (*grpc.ClientConn, error) {
-	return grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithKeepaliveParams(keepalive.ClientParameters{
-		Time:                30 * time.Second,
-		Timeout:             5 * time.Second,
-		PermitWithoutStream: true,
-	}))
+// getLeaderClient returns the gRPC client for the current leader.
+func (n *Node) getLeaderClient(leaderID uint64) (Client, bool) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	client, ok := n.clients[leaderID]
+	return client, ok
 }

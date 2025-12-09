@@ -3,40 +3,40 @@ package storage
 import "sync"
 
 type Store struct {
-	kvStore map[string]any
-	mu      sync.RWMutex
+	data map[string]any
+	mu   sync.RWMutex
 }
 
 func NewStore() *Store {
 	return &Store{
-		kvStore: make(map[string]any),
+		data: make(map[string]any),
 	}
 }
 
 func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.kvStore[key] = value
+	s.data[key] = value
 }
 
 func (s *Store) Get(key string) (any, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	v, ok := s.kvStore[key]
+	v, ok := s.data[key]
 	return v, ok
 }
 
 func (s *Store) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.kvStore, key)
+	delete(s.data, key)
 }
 
 func (s *Store) DescribeType(key string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	v, ok := s.kvStore[key]
+	v, ok := s.data[key]
 	if !ok {
 		return "missing"
 	}
