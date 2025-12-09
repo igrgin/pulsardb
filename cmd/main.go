@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"pulsardb/internal/command"
 	"pulsardb/internal/configuration"
-	"pulsardb/internal/configuration/properties"
-	logging "pulsardb/internal/logging"
+	"pulsardb/internal/logging"
+	"pulsardb/internal/raft"
 	"pulsardb/internal/storage"
 	"pulsardb/internal/transport"
 	"pulsardb/internal/transport/gen"
@@ -20,7 +21,7 @@ func main() {
 		os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
 
-	config, err := configuration.Load()
+	config, commandConfig, raftConfig, transportConfig, err := configuration.LoadConfig()
 	if err != nil {
 		slog.Error("Failed to initialize application context", "Error", err)
 		return
@@ -29,16 +30,28 @@ func main() {
 	logging.Init(config.Application.LogLevel)
 	slog.Info("Starting database...")
 
-	cfgProvider := properties.NewProvider(config)
-
 	storageService := storage.NewStorageService()
-
-	commandConfig := cfgProvider.GetCommand()
 	cmdService := command.NewCommandService(commandConfig)
 
 	setHandler := command.NewSetHandler(storageService)
 	getHandler := command.NewGetHandler(storageService)
 	deleteHandler := command.NewDeleteHandler(storageService)
+
+	raftNode, err := raft.NewRaftNode(raftConfig, storageService, cmdService, net.JoinHostPort(transportConfig.Address, transportConfig.RaftPort))
+	if err != nil {
+		slog.Error("Failed to start node with error", "ERROR", err)
+		return
+	}
+
+	status := raftNode.Node.Status()
+	slog.Info("raft status on startup",
+		"id", raftNode.Id,
+		"state", status.RaftState.String(),
+		"term", status.Term,
+		"lead", status.Lead,
+		"voters", status.Config.Voters,
+	)
+	raftNode.StartLoop()
 
 	commandHandlers := map[command_events.CommandEventType]command.Handler{
 		command_events.CommandEventType_SET:    setHandler,
@@ -49,10 +62,9 @@ func main() {
 	taskExecutor := command.NewTaskExecutor(cmdService, commandHandlers)
 	go taskExecutor.Execute()
 
-	serverConfig := cfgProvider.GetTransport()
-	transportService := transport.NewTransportService(serverConfig, cmdService)
+	transportService := transport.NewTransportService(transportConfig, cmdService, raftNode)
 
-	_, err = transportService.StartServer()
+	_, _, err = transportService.StartServer()
 	if err != nil {
 		slog.Error("Failed to start transport server", "Error", err)
 		return

@@ -34,8 +34,6 @@ func NewDeleteHandler(s *storage.Service) *DeleteHandler {
 	return &DeleteHandler{storageService: s}
 }
 
-// --- helpers ---
-
 func valueFromProto(v *command_events.CommandEventValue) any {
 	if v == nil {
 		return nil
@@ -86,8 +84,6 @@ func valueToProto(a any) *command_events.CommandEventValue {
 		return nil
 	}
 }
-
-// --- handlers ---
 
 func (h *SetHandler) Handle(task *CmdTask) (*CmdTask, error) {
 	req := task.event

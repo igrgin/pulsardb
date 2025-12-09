@@ -4,6 +4,7 @@ type ConfigProvider interface {
 	GetApplication() *ApplicationConfigProperties
 	GetTransport() *TransportConfigProperties
 	GetCommand() *CommandConfigProperties
+	GetRaft() *RaftConfigProperties
 }
 
 type AppConfigProvider struct {
@@ -24,4 +25,8 @@ func (c *AppConfigProvider) GetTransport() *TransportConfigProperties {
 
 func (c *AppConfigProvider) GetCommand() *CommandConfigProperties {
 	return &c.config.Command
+}
+
+func (c *AppConfigProvider) GetRaft() *RaftConfigProperties {
+	return &c.config.Raft
 }

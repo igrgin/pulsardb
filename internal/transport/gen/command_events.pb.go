@@ -202,10 +202,11 @@ func (*CommandEventValue_BytesValue) isCommandEventValue_Value() {}
 
 type CommandEventRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Type            CommandEventType       `protobuf:"varint,1,opt,name=type,proto3,enum=command_events.CommandEventType" json:"type,omitempty"`
-	Key             string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`                           // Used for SET, GET, DELETE
-	CmdValue        *CommandEventValue     `protobuf:"bytes,3,opt,name=cmd_value,json=cmdValue,proto3" json:"cmd_value,omitempty"` // Only used for SET
-	ExtraAttributes map[string]string      `protobuf:"bytes,4,rep,name=extra_attributes,json=extraAttributes,proto3" json:"extra_attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	EventId         uint64                 `protobuf:"varint,1,opt,name=eventId,proto3" json:"eventId,omitempty"`
+	Type            CommandEventType       `protobuf:"varint,2,opt,name=type,proto3,enum=command_events.CommandEventType" json:"type,omitempty"`
+	Key             string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`                           // Used for SET, GET, DELETE
+	CmdValue        *CommandEventValue     `protobuf:"bytes,4,opt,name=cmd_value,json=cmdValue,proto3" json:"cmd_value,omitempty"` // Only used for SET
+	ExtraAttributes map[string]string      `protobuf:"bytes,5,rep,name=extra_attributes,json=extraAttributes,proto3" json:"extra_attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -240,6 +241,13 @@ func (*CommandEventRequest) Descriptor() ([]byte, []int) {
 	return file_command_events_proto_rawDescGZIP(), []int{1}
 }
 
+func (x *CommandEventRequest) GetEventId() uint64 {
+	if x != nil {
+		return x.EventId
+	}
+	return 0
+}
+
 func (x *CommandEventRequest) GetType() CommandEventType {
 	if x != nil {
 		return x.Type
@@ -270,10 +278,11 @@ func (x *CommandEventRequest) GetExtraAttributes() map[string]string {
 
 type CommandEventResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          CommandEventType       `protobuf:"varint,1,opt,name=type,proto3,enum=command_events.CommandEventType" json:"type,omitempty"`
-	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	CmdValue      *CommandEventValue     `protobuf:"bytes,3,opt,name=cmd_value,json=cmdValue,proto3" json:"cmd_value,omitempty"`             // Only used for GET
-	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"` // Only populated on error
+	EventId       uint64                 `protobuf:"varint,2,opt,name=eventId,proto3" json:"eventId,omitempty"`
+	Type          CommandEventType       `protobuf:"varint,3,opt,name=type,proto3,enum=command_events.CommandEventType" json:"type,omitempty"`
+	Success       bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"`
+	CmdValue      *CommandEventValue     `protobuf:"bytes,5,opt,name=cmd_value,json=cmdValue,proto3" json:"cmd_value,omitempty"`             // Only used for GET
+	ErrorMessage  string                 `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"` // Only populated on error
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -306,6 +315,13 @@ func (x *CommandEventResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CommandEventResponse.ProtoReflect.Descriptor instead.
 func (*CommandEventResponse) Descriptor() ([]byte, []int) {
 	return file_command_events_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CommandEventResponse) GetEventId() uint64 {
+	if x != nil {
+		return x.EventId
+	}
+	return 0
 }
 
 func (x *CommandEventResponse) GetType() CommandEventType {
@@ -349,20 +365,22 @@ const file_command_events_proto_rawDesc = "" +
 	"bool_value\x18\x06 \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\a \x01(\fH\x00R\n" +
 	"bytesValueB\a\n" +
-	"\x05value\"\xc6\x02\n" +
-	"\x13CommandEventRequest\x124\n" +
-	"\x04type\x18\x01 \x01(\x0e2 .command_events.CommandEventTypeR\x04type\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\x12>\n" +
-	"\tcmd_value\x18\x03 \x01(\v2!.command_events.CommandEventValueR\bcmdValue\x12c\n" +
-	"\x10extra_attributes\x18\x04 \x03(\v28.command_events.CommandEventRequest.ExtraAttributesEntryR\x0fextraAttributes\x1aB\n" +
+	"\x05value\"\xe0\x02\n" +
+	"\x13CommandEventRequest\x12\x18\n" +
+	"\aeventId\x18\x01 \x01(\x04R\aeventId\x124\n" +
+	"\x04type\x18\x02 \x01(\x0e2 .command_events.CommandEventTypeR\x04type\x12\x10\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\x12>\n" +
+	"\tcmd_value\x18\x04 \x01(\v2!.command_events.CommandEventValueR\bcmdValue\x12c\n" +
+	"\x10extra_attributes\x18\x05 \x03(\v28.command_events.CommandEventRequest.ExtraAttributesEntryR\x0fextraAttributes\x1aB\n" +
 	"\x14ExtraAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcb\x01\n" +
-	"\x14CommandEventResponse\x124\n" +
-	"\x04type\x18\x01 \x01(\x0e2 .command_events.CommandEventTypeR\x04type\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\x12>\n" +
-	"\tcmd_value\x18\x03 \x01(\v2!.command_events.CommandEventValueR\bcmdValue\x12#\n" +
-	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage*0\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe5\x01\n" +
+	"\x14CommandEventResponse\x12\x18\n" +
+	"\aeventId\x18\x02 \x01(\x04R\aeventId\x124\n" +
+	"\x04type\x18\x03 \x01(\x0e2 .command_events.CommandEventTypeR\x04type\x12\x18\n" +
+	"\asuccess\x18\x04 \x01(\bR\asuccess\x12>\n" +
+	"\tcmd_value\x18\x05 \x01(\v2!.command_events.CommandEventValueR\bcmdValue\x12#\n" +
+	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage*0\n" +
 	"\x10CommandEventType\x12\a\n" +
 	"\x03SET\x10\x00\x12\a\n" +
 	"\x03GET\x10\x01\x12\n" +

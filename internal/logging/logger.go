@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -55,57 +54,39 @@ func (h *prettyHandler) Enabled(_ context.Context, lvl slog.Level) bool {
 	return lvl >= h.level.Level()
 }
 
-func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
-	if !h.Enabled(nil, r.Level) {
+func (h *prettyHandler) Handle(ctx context.Context, r slog.Record) error {
+	if !h.Enabled(ctx, r.Level) {
 		return nil
 	}
 
 	var buf bytes.Buffer
-
-	// time: fixed layout, always same width
 	ts := time.Now().Format("2006-01-02 15:04:05.000")
 	fmt.Fprintf(&buf, "%s ", ts)
 
-	// level: 5 chars, colorized, then single space
 	level := levelToUpper(r.Level)
 	color := colorForLevel(r.Level)
 	reset := "\033[0m"
 	fmt.Fprintf(&buf, "%s%-5s%s ", color, level, reset)
 
-	// file:line: left-padded/truncated to a fixed width, then space
 	if h.source {
-		if file, line := resolveCaller(); file != "" {
+		if file, line, topPkg := resolveCaller(); file != "" {
 			loc := fmt.Sprintf("%s:%d", filepath.Base(file), line)
-			fmt.Fprintf(&buf, "%-25s ", loc)
+			pkgName := filepath.Base(filepath.Dir(file))
+			if pkgName == "." || pkgName == "" {
+				pkgName = topPkg
+			}
+			fmt.Fprintf(&buf, "%-9s %-25s ", pkgName, loc)
 		}
 	}
 
-	// message
 	buf.WriteString(r.Message)
 
-	// attributes key=value
-	var errVal error
 	r.Attrs(func(a slog.Attr) bool {
-		if a.Key == "error" {
-			if e, ok := a.Value.Any().(error); ok {
-				errVal = e
-				fmt.Fprintf(&buf, " %s=%v", a.Key, e)
-				return true
-			}
-		}
 		fmt.Fprintf(&buf, " %s=%v", a.Key, a.Value.Any())
 		return true
 	})
 
 	buf.WriteByte('\n')
-
-	// error + stack trace
-	if errVal != nil {
-		fmt.Fprintf(&buf, "ERROR: %v\n", errVal)
-		buf.Write(debug.Stack())
-		buf.WriteByte('\n')
-	}
-
 	_, err := h.out.Write(buf.Bytes())
 	return err
 }
@@ -155,11 +136,11 @@ func colorForLevel(l slog.Level) string {
 }
 
 // resolveCaller walks the stack and returns the first frame outside `internal/logging`.
-func resolveCaller() (string, int) {
+func resolveCaller() (string, int, string) {
 	const maxDepth = 32
 	var pcs [maxDepth]uintptr
 
-	n := runtime.Callers(5, pcs[:])
+	n := runtime.Callers(4, pcs[:])
 	frames := runtime.CallersFrames(pcs[:n])
 
 	for {
@@ -168,15 +149,38 @@ func resolveCaller() (string, int) {
 			break
 		}
 
-		if strings.Contains(
-			f.File,
-			string(os.PathSeparator)+"internal"+string(os.PathSeparator)+"logging"+string(os.PathSeparator),
-		) {
+		// Skip frames from the logging package.
+		if strings.Contains(f.File, "logger") {
 			continue
 		}
 
-		return f.File, f.Line
+		pkg := extractPackageName(f.Function)
+		return f.File, f.Line, pkg
 	}
 
-	return "", 0
+	return "", 0, ""
+}
+
+// extractPackageName gets the last package segment from a fully-qualified func name.
+// e.g. "pulsardb/internal/transport.(*Service).StartServer" -> "transport"
+func extractPackageName(fullFunc string) string {
+	if fullFunc == "" {
+		return ""
+	}
+
+	// Drop method/func part: ".../pkg.Type.Method" -> ".../pkg"
+	lastSlash := strings.LastIndex(fullFunc, "/")
+	if lastSlash == -1 {
+		// no path, maybe "pkg.Func"
+		if dot := strings.Index(fullFunc, "."); dot != -1 {
+			return fullFunc[:dot]
+		}
+		return fullFunc
+	}
+
+	pathAndFunc := fullFunc[:lastSlash]
+	if idx := strings.LastIndex(pathAndFunc, "/"); idx != -1 {
+		return pathAndFunc[idx+1:]
+	}
+	return pathAndFunc
 }

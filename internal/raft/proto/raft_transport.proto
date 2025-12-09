@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package raft_events;
+
+option go_package = "pulsardb/internal/transport/gen;raft_events";
+
+message RaftMessage {
+  bytes data = 1; // serialized go.etcd.io/raft/v3/raftpb.Message
+}
+
+message RaftMessageResponse {
+  bool ok = 1;
+}
+
+service RaftTransportService {
+  rpc SendRaftMessage(RaftMessage) returns (RaftMessageResponse);
+}

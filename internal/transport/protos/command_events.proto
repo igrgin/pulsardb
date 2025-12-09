@@ -21,18 +21,20 @@ message CommandEventValue {
 }
 
 message CommandEventRequest {
-  CommandEventType type = 1;
-  string key = 2;  // Used for SET, GET, DELETE
-  CommandEventValue cmd_value = 3; // Only used for SET
-  map<string, string> extra_attributes = 4;
+  uint64 eventId = 1;
+  CommandEventType type = 2;
+  string key = 3;  // Used for SET, GET, DELETE
+  CommandEventValue cmd_value = 4; // Only used for SET
+  map<string, string> extra_attributes = 5;
 
 }
 
 message CommandEventResponse {
-  CommandEventType type = 1;
-  bool success = 2;
-  CommandEventValue cmd_value = 3; // Only used for GET
-  string error_message = 4;  // Only populated on error
+  uint64 eventId = 2;
+  CommandEventType type = 3;
+  bool success = 4;
+  CommandEventValue cmd_value = 5; // Only used for GET
+  string error_message = 6;  // Only populated on error
 }
 
 service CommandEventService {

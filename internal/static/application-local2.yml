@@ -1,0 +1,10 @@
+transport:
+  client-port: 50053
+  raft-port: 50054
+
+raft:
+  node-id: 2
+  peers:
+    1: "127.0.0.1:50052"
+    3: "127.0.0.1:50056"
+  storage-base-dir: "internal/raft/storage/local2"

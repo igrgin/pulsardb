@@ -1,12 +1,11 @@
 app:
-  profile: local
-  log-level: info
+  profile: ${APP_PROFILE}
+  log-level: debug
 
 transport:
   network: tcp
-  address: localhost
-  port: 50051
-  timeout: 20
+  address: 127.0.0.1
+  timeout: 60
 
 command:
-  queue-size: 20
+  queue-size: 100_000

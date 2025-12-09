@@ -3,11 +3,13 @@ package command
 import (
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"pulsardb/internal/configuration/properties"
 	"pulsardb/internal/transport/gen"
 )
 
 type CmdTask struct {
+	taskId          uint64
 	event           *command_events.CommandEventRequest
 	status          TaskStatus
 	responseChannel chan *command_events.CommandEventResponse
@@ -36,12 +38,23 @@ func (s *Service) Enqueue(ev *command_events.CommandEventRequest, respChan chan 
 	task := toCmdTask(ev, respChan)
 	select {
 	case s.CmdTaskQueue <- task:
+		slog.Debug("enqueued command task",
+			"task_id", task.taskId,
+			"type", ev.GetType().String(),
+			"key", ev.GetKey(),
+			"event_id", ev.EventId,
+		)
 		return nil
 	default:
+		slog.Error("command queue is full",
+			"type", ev.GetType().String(),
+			"key", ev.GetKey(),
+			"event_id", ev.EventId,
+		)
 		return fmt.Errorf("command queue is full")
 	}
 }
 
 func toCmdTask(ev *command_events.CommandEventRequest, rc chan *command_events.CommandEventResponse) CmdTask {
-	return CmdTask{event: ev, status: Pending, responseChannel: rc}
+	return CmdTask{event: ev, status: Pending, responseChannel: rc, taskId: rand.Uint64()}
 }

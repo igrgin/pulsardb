@@ -28,9 +28,11 @@ func (te *TaskExecutor) Execute() {
 	slog.Info("task executor started")
 	for task := range te.commandService.CmdTaskQueue {
 		task.status = Active
-		slog.Debug("task Activated",
+		slog.Debug("task activated",
+			"task_id", task.taskId,
 			"type", task.event.GetType().String(),
 			"key", task.event.GetKey(),
+			"event_id", task.event.EventId,
 		)
 
 		handler, ok := te.commandHandlers[task.event.Type]
@@ -42,8 +44,10 @@ func (te *TaskExecutor) Execute() {
 				ErrorMessage: "type missing handler",
 			}
 			slog.Error("missing handler for command type",
+				"task_id", task.taskId,
 				"type", task.event.GetType().String(),
 				"key", task.event.GetKey(),
+				"event_id", task.event.EventId,
 			)
 			task.responseChannel <- resp
 			continue
@@ -52,15 +56,19 @@ func (te *TaskExecutor) Execute() {
 		handlerResponse, err := handler.Handle(&task)
 		if err != nil && handlerResponse.status != Failed {
 			slog.Error("handler error",
+				"task_id", task.taskId,
 				"type", task.event.GetType().String(),
 				"key", task.event.GetKey(),
+				"event_id", task.event.EventId,
 				"error", err,
 			)
 			handlerResponse.status = Failed
 		} else {
 			slog.Debug("handler completed",
+				"task_id", task.taskId,
 				"type", task.event.GetType().String(),
 				"key", task.event.GetKey(),
+				"event_id", task.event.EventId,
 				"status", handlerResponse.status.String(),
 			)
 		}
