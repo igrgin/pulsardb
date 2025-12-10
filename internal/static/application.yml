@@ -8,4 +8,10 @@ transport:
   timeout: 60
 
 command:
-  queue-size: 100_000
+  queue-size: 10000
+
+raft:
+  tick-interval: 100 # X seconds
+  snap-count: 10_000 # Snapshot every X entries
+  timeout: 5 # X seconds
+  max-concurrent-streams: 5000

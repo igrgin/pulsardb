@@ -18,25 +18,27 @@ import (
 )
 
 type Service struct {
-	network        string
-	address        string
-	clientPort     string
-	raftPort       string
-	timeout        int
-	commandService *command.Service
-	raftNode       *raft.Node
-	Server         *grpc.Server
+	network              string
+	address              string
+	clientPort           string
+	raftPort             string
+	timeout              uint64
+	commandService       *command.Service
+	raftNode             *raft.Node
+	Server               *grpc.Server
+	maxConcurrentStreams uint32
 }
 
 func NewTransportService(transportConfig *properties.TransportConfigProperties, commandService *command.Service, raftNode *raft.Node) *Service {
 	return &Service{
-		network:        transportConfig.Network,
-		address:        transportConfig.Address,
-		clientPort:     transportConfig.ClientPort,
-		raftPort:       transportConfig.RaftPort,
-		timeout:        transportConfig.Timeout,
-		commandService: commandService,
-		raftNode:       raftNode,
+		network:              transportConfig.Network,
+		address:              transportConfig.Address,
+		clientPort:           transportConfig.ClientPort,
+		raftPort:             transportConfig.RaftPort,
+		timeout:              transportConfig.Timeout,
+		commandService:       commandService,
+		raftNode:             raftNode,
+		maxConcurrentStreams: transportConfig.MaxConcurrentStreams,
 	}
 }
 
@@ -53,17 +55,18 @@ func (ts *Service) StartServer() (net.Listener, net.Listener, error) {
 	}
 
 	var opts []grpc.ServerOption
-	const minTimeout = 60
 
-	if ts.timeout >= minTimeout {
+	if ts.timeout >= ts.raftNode.Timeout {
 		slog.Info(fmt.Sprintf("Setting transport timeout to %d seconds", ts.timeout))
 		opts = append(opts,
 			grpc.UnaryInterceptor(timeoutInterceptor(time.Duration(ts.timeout)*time.Second)))
 	} else {
-		slog.Warn(fmt.Sprintf("Timeout can't be less than raft timeout. Setting transport timeout to %d seconds.", minTimeout))
+		slog.Warn(fmt.Sprintf("Timeout can't be less than raft timeout. Setting transport timeout to %d seconds.", ts.raftNode.Timeout))
 		opts = append(opts,
-			grpc.UnaryInterceptor(timeoutInterceptor(time.Duration(minTimeout)*time.Second)))
+			grpc.UnaryInterceptor(timeoutInterceptor(time.Duration(ts.raftNode.Timeout)*time.Second)))
 	}
+
+	opts = append(opts, grpc.MaxConcurrentStreams(ts.maxConcurrentStreams))
 
 	ts.Server = grpc.NewServer(opts...)
 

@@ -11,7 +11,7 @@ type Logger struct {
 }
 
 func NewSlogRaftLogger() *Logger {
-	// Force raft logger to debug level, independent from global level.
+	// Force raft logger to debug level, independent of global level.
 	// If your global logger is already set on slog.Default(), you can just use it.
 	return &Logger{
 		l: slog.Default().WithGroup("raft"),

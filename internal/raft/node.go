@@ -53,8 +53,9 @@ type Node struct {
 	stopCh    chan struct{}
 	stoppedWg sync.WaitGroup
 
-	// Snapshot function - provided by storage service
-	getSnapshot func() ([]byte, error)
+	tickInterval uint64
+	snapCount    uint64
+	Timeout      uint64
 }
 
 // NewNode creates a new raft node with the given configuration.
@@ -77,6 +78,9 @@ func NewNode(rc *properties.RaftConfigProperties, storeSvc *storage.Service, com
 		readWaiters:  make(map[string]chan uint64),
 		lastApplied:  cfg.lastIndex,
 		confState:    cfg.storage.ConfState(),
+		tickInterval: rc.TickInterval,
+		snapCount:    rc.SnapCount,
+		Timeout:      rc.Timeout,
 	}
 
 	n.raftNode = cfg.raftNode
@@ -89,19 +93,16 @@ func NewNode(rc *properties.RaftConfigProperties, storeSvc *storage.Service, com
 	return n, nil
 }
 
-// RawNode returns the underlying etcd/raft Node.
 func (n *Node) RawNode() *etcdraft.Node {
 	return &n.raftNode
 }
 
-// Status returns the current raft status.
 func (n *Node) Status() etcdraft.Status {
 	return n.raftNode.Status()
 }
 
-// Start begins the raft event loop.
 func (n *Node) Start() {
-	// First, restore state from snapshot and WAL
+	// CRITICAL:  Recover application state BEFORE starting the raft loop
 	if err := n.recoverState(); err != nil {
 		slog.Error("failed to recover state", "node_id", n.Id, "error", err)
 	}
@@ -110,7 +111,6 @@ func (n *Node) Start() {
 	n.startLoop()
 }
 
-// Stop gracefully shuts down the raft node.
 func (n *Node) Stop() {
 	close(n.stopCh)
 	n.stoppedWg.Wait()
@@ -122,46 +122,64 @@ func (n *Node) Stop() {
 	slog.Info("raft node stopped", "id", n.Id)
 }
 
-// recoverState rebuilds in-memory state from snapshot and WAL entries.
+// recoverState rebuilds the application's KV store from snapshot and WAL.
 func (n *Node) recoverState() error {
-	slog.Info("recovering state from storage", "node_id", n.Id)
+	slog.Info("recovering application state", "node_id", n.Id)
 
-	// 1) Load and apply snapshot data to storage service
-	snap, err := n.storage.RaftStorage().Snapshot()
-	if err != nil {
-		return err
-	}
+	// 1) Get the actual snapshot index from the storage (NOT from MemoryStorage)
+	//    This is the index of the real data snapshot file, or 0 if none exists
+	snapIndex := n.storage.SnapshotIndex()
+	snapData := n.storage.SnapshotData()
 
-	snapIndex := snap.Metadata.Index
-	if len(snap.Data) > 0 {
-		slog.Info("restoring from snapshot",
+	slog.Debug("recovery info",
+		"node_id", n.Id,
+		"snapshot_index", snapIndex,
+		"has_snapshot_data", len(snapData) > 0,
+	)
+
+	// 2) Restore from snapshot data if present
+	if len(snapData) > 0 {
+		slog.Info("restoring KV store from snapshot",
 			"node_id", n.Id,
 			"index", snapIndex,
-			"term", snap.Metadata.Term,
+			"data_size", len(snapData),
 		)
-		if err := n.storeSvc.RestoreFromSnapshot(snap.Data); err != nil {
+		if err := n.storeSvc.RestoreFromSnapshot(snapData); err != nil {
 			return err
 		}
+		slog.Info("restored from snapshot",
+			"node_id", n.Id,
+			"keys", n.storeSvc.Len(),
+		)
 	}
 
+	// 3) Get committed entries AFTER the snapshot index
 	entries, err := n.storage.EntriesAfter(snapIndex)
 	if err != nil {
 		return err
 	}
 
 	if len(entries) == 0 {
-		slog.Info("no entries to replay", "node_id", n.Id)
+		slog.Info("no WAL entries to replay",
+			"node_id", n.Id,
+			"snapshot_index", snapIndex,
+		)
+		// Still set lastApplied from hardstate if we have it
+		if snapIndex > n.lastApplied {
+			n.lastApplied = snapIndex
+		}
 		return nil
 	}
 
-	slog.Info("replaying WAL entries",
+	slog.Info("replaying WAL entries to KV store",
 		"node_id", n.Id,
 		"count", len(entries),
 		"from_index", entries[0].Index,
 		"to_index", entries[len(entries)-1].Index,
 	)
 
-	// 3) Replay each entry synchronously (blocking, not through command queue)
+	// 4) Replay each committed entry to the application store
+	replayedCount := 0
 	for _, entry := range entries {
 		if err := n.replayEntry(entry); err != nil {
 			slog.Error("failed to replay entry",
@@ -169,39 +187,45 @@ func (n *Node) recoverState() error {
 				"index", entry.Index,
 				"error", err,
 			)
-			// Continue replaying other entries
+			// Continue with other entries
+		} else {
+			replayedCount++
 		}
 	}
 
 	n.lastApplied = entries[len(entries)-1].Index
-	slog.Info("state recovery complete",
+
+	slog.Info("application state recovery complete",
 		"node_id", n.Id,
 		"last_applied", n.lastApplied,
+		"entries_replayed", replayedCount,
+		"storage_keys", n.storeSvc.Len(),
 	)
 
 	return nil
 }
 
-// replayEntry applies a single entry during recovery (synchronous, no response channel).
+// replayEntry applies a single entry to the application store during recovery.
 func (n *Node) replayEntry(entry raftpb.Entry) error {
 	switch entry.Type {
 	case raftpb.EntryConfChange:
-		// Conf changes were already applied to raft during storage load
-		// Just update our local confState tracking
+		// Conf changes don't affect KV store, just log them
 		var cc raftpb.ConfChange
 		if err := cc.Unmarshal(entry.Data); err != nil {
 			return err
 		}
-		slog.Debug("replayed conf change",
+		slog.Debug("skipped conf change during KV replay",
 			"node_id", n.Id,
 			"index", entry.Index,
 			"type", cc.Type.String(),
 			"target_node", cc.NodeID,
 		)
+		return nil
 
 	case raftpb.EntryNormal:
 		if len(entry.Data) == 0 {
-			return nil // Empty entry (leader election, etc.)
+			// Empty entry (leader election, etc.)
+			return nil
 		}
 
 		var req commandevents.CommandEventRequest
@@ -211,64 +235,54 @@ func (n *Node) replayEntry(entry raftpb.Entry) error {
 
 		// Apply directly to storage (bypass command queue during replay)
 		if err := n.applyToStorage(&req); err != nil {
-			slog.Error("failed to apply entry to storage",
-				"node_id", n.Id,
-				"index", entry.Index,
-				"type", req.GetType().String(),
-				"key", req.GetKey(),
-				"error", err,
-			)
 			return err
 		}
 
-		slog.Debug("replayed entry",
+		slog.Debug("replayed entry to KV store",
 			"node_id", n.Id,
 			"index", entry.Index,
 			"type", req.GetType().String(),
 			"key", req.GetKey(),
 		)
-	}
+		return nil
 
-	return nil
+	default:
+		slog.Warn("unknown entry type during replay",
+			"node_id", n.Id,
+			"index", entry.Index,
+			"type", entry.Type.String(),
+		)
+		return nil
+	}
 }
 
-// applyToStorage applies a command directly to storage (used during replay).
+// applyToStorage applies a command directly to the KV store.
 func (n *Node) applyToStorage(req *commandevents.CommandEventRequest) error {
 	switch req.GetType() {
 	case commandevents.CommandEventType_SET:
 		val := command.ValueFromProto(req.GetCmdValue())
 		n.storeSvc.Set(req.GetKey(), val)
-		slog.Debug("applied SET to storage during replay",
-			"key", req.GetKey(),
-			"value", val,
-			"storage_len", n.storeSvc.Len(),
-		)
 	case commandevents.CommandEventType_DELETE:
 		n.storeSvc.Delete(req.GetKey())
-		slog.Debug("applied DELETE to storage during replay",
-			"key", req.GetKey(),
-		)
 	case commandevents.CommandEventType_GET:
-		slog.Warn("GET command's shouldn't be replayed")
+		// GET doesn't modify state
 	}
 	return nil
 }
 
-// nextRequestID generates a unique request ID.
 func (n *Node) nextRequestID() uint64 {
 	return atomic.AddUint64(&n.nextReqID, 1)
 }
 
-// restoreFromConfState restores peer connections from persisted confState.
 func (n *Node) restoreFromConfState() {
-	slog.Debug("restoring from confState",
+	slog.Debug("restoring peer connections from confState",
 		"node_id", n.Id,
 		"voters", n.confState.Voters,
 		"learners", n.confState.Learners,
 	)
 
 	if len(n.confState.Voters) == 0 {
-		slog.Debug("confState empty, using configured peers for bootstrap",
+		slog.Debug("confState empty, using configured peers",
 			"node_id", n.Id,
 			"peers", n.peers,
 		)
@@ -282,7 +296,7 @@ func (n *Node) restoreFromConfState() {
 
 		addr, ok := n.peers[voterID]
 		if !ok {
-			slog.Warn("no address configured for voter",
+			slog.Warn("no address for voter",
 				"node_id", n.Id,
 				"voter_id", voterID,
 			)
@@ -295,16 +309,15 @@ func (n *Node) restoreFromConfState() {
 
 		if !exists {
 			if err := n.initPeerClient(voterID, addr); err != nil {
-				slog.Warn("failed to restore peer client",
+				slog.Warn("failed to init peer client",
 					"peer_id", voterID,
 					"addr", addr,
 					"error", err,
 				)
 			} else {
-				slog.Info("restored peer client from confState",
+				slog.Debug("restored peer client",
 					"node_id", n.Id,
 					"peer_id", voterID,
-					"addr", addr,
 				)
 			}
 		}

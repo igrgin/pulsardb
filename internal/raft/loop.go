@@ -9,11 +9,6 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-const (
-	tickInterval = 100 * time.Millisecond
-	snapCount    = uint64(10000) // Snapshot every 10000 entries
-)
-
 // startLoop begins the main raft event loop in a goroutine.
 func (n *Node) startLoop() {
 	n.stoppedWg.Add(1)
@@ -26,7 +21,7 @@ func (n *Node) startLoop() {
 
 // runLoop is the main raft event loop.
 func (n *Node) runLoop() {
-	ticker := time.NewTicker(tickInterval)
+	ticker := time.NewTicker(time.Duration(n.tickInterval) * time.Millisecond)
 	defer ticker.Stop()
 
 	slog.Info("raft loop started", "node_id", n.Id)
@@ -55,7 +50,7 @@ func (n *Node) runLoop() {
 			}
 
 			// Check if we should trigger a snapshot
-			if n.lastApplied-snapshotIndex >= snapCount {
+			if n.lastApplied-snapshotIndex >= n.snapCount {
 				if err := n.triggerSnapshot(); err != nil {
 					slog.Error("failed to trigger snapshot",
 						"node_id", n.Id,
@@ -93,16 +88,13 @@ func (n *Node) processReady(rd etcdraft.Ready) error {
 		n.applyCommitted(rd.CommittedEntries)
 	}
 
-	// 4) Compute commit index for ReadIndex waiters
-	commitIdx := n.computeCommitIndex(rd)
+	// 4) Wake up ReadIndex waiters
+	n.handleReadStates(rd.ReadStates)
 
-	// 5) Wake up ReadIndex waiters
-	n.handleReadStates(rd.ReadStates, commitIdx)
-
-	// 6) Send outgoing raft messages (async)
+	// 5) Send outgoing raft messages (async)
 	n.sendMessages(rd.Messages)
 
-	// 7) Signal raft that we're done with this Ready batch
+	// 6) Signal raft that we're done with this Ready batch
 	n.raftNode.Advance()
 
 	return nil
@@ -132,11 +124,7 @@ func (n *Node) applySnapshot(snap raftpb.Snapshot) error {
 
 // triggerSnapshot creates a snapshot of the current state.
 func (n *Node) triggerSnapshot() error {
-	if n.getSnapshot == nil {
-		return nil
-	}
-
-	data, err := n.getSnapshot()
+	data, err := n.storeSvc.GetSnapshot()
 	if err != nil {
 		return err
 	}
@@ -152,8 +140,8 @@ func (n *Node) triggerSnapshot() error {
 
 	// Compact the raft log to free memory
 	compactIndex := uint64(1)
-	if n.lastApplied > snapCount {
-		compactIndex = n.lastApplied - snapCount
+	if n.lastApplied > n.snapCount {
+		compactIndex = n.lastApplied - n.snapCount
 	}
 	if err := n.storage.RaftStorage().Compact(compactIndex); err != nil {
 		if !errors.Is(err, etcdraft.ErrCompacted) {

@@ -2,12 +2,10 @@ package storage
 
 import (
 	"encoding/json"
-	"sync"
 )
 
 // Service provides thread-safe key-value storage.
 type Service struct {
-	mu sync.RWMutex
 	kv *Store
 }
 
@@ -20,34 +18,26 @@ func NewStorageService() *Service {
 
 // Get retrieves a value by key.
 func (s *Service) Get(key string) (any, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	val, ok := s.kv.data[key]
+	val, ok := s.kv.Get(key)
 	return val, ok
 }
 
 // Set stores a key-value pair.
 func (s *Service) Set(key string, value any) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.kv.data[key] = value
+	s.kv.Set(key, value)
 }
 
 // Delete removes a key.
 func (s *Service) Delete(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.kv.data, key)
+	s.kv.Delete(key)
 }
 
 // GetSnapshot returns a JSON-encoded snapshot of all kv.
 func (s *Service) GetSnapshot() ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	// Convert to a serializable format
 	snapshot := make(map[string]snapshotValue)
-	for k, v := range s.kv.data {
+	for k, v := range s.kv.GetData() {
 		snapshot[k] = toSnapshotValue(v)
 	}
 
@@ -56,8 +46,6 @@ func (s *Service) GetSnapshot() ([]byte, error) {
 
 // RestoreFromSnapshot restores state from a JSON-encoded snapshot.
 func (s *Service) RestoreFromSnapshot(data []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	var snapshot map[string]snapshotValue
 	if err := json.Unmarshal(data, &snapshot); err != nil {
@@ -74,9 +62,7 @@ func (s *Service) RestoreFromSnapshot(data []byte) error {
 
 // Len returns the number of keys.
 func (s *Service) Len() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.kv.data)
+	return s.kv.len()
 }
 
 // snapshotValue is a JSON-serializable wrapper for typed values.
@@ -111,7 +97,7 @@ func fromSnapshotValue(sv snapshotValue) any {
 	case "int64":
 		// JSON unmarshal numbers as int64
 		if f, ok := sv.Value.(int64); ok {
-			return int64(f)
+			return f
 		}
 	case "float64":
 		if f, ok := sv.Value.(float64); ok {

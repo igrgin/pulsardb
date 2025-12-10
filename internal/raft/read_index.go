@@ -72,7 +72,7 @@ func (n *Node) executeGet(ctx context.Context, key string) (*commandevents.Comma
 }
 
 // handleReadStates processes ReadIndex responses.
-func (n *Node) handleReadStates(readStates []etcdraft.ReadState, commitIndex uint64) {
+func (n *Node) handleReadStates(readStates []etcdraft.ReadState) {
 	if len(readStates) == 0 {
 		return
 	}

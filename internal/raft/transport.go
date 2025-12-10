@@ -13,8 +13,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-const sendTimeout = 5 * time.Second
-
 // sendMessages sends raft messages to peers concurrently.
 func (n *Node) sendMessages(msgs []raftpb.Message) {
 	for _, msg := range msgs {
@@ -50,7 +48,7 @@ func (n *Node) sendMessage(msg raftpb.Message) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(n.Timeout)*time.Second)
 	defer cancel()
 
 	if _, err := client.SendRaftMessage(ctx, &raftevents.RaftMessage{Data: data}); err != nil {

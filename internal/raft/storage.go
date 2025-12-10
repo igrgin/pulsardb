@@ -445,7 +445,7 @@ func (s *Storage) SaveSnapshot(snap raftpb.Snapshot) error {
 func (s *Storage) saveConfState(cs raftpb.ConfState) error {
 	confStatePath := filepath.Join(s.dir, confStateFolder, "current")
 	data := pbutil.MustMarshal(&cs)
-	if err := atomicWriteFile(confStatePath, data, 0o640); err != nil {
+	if err := atomicWriteFile(confStatePath, data); err != nil {
 		return fmt.Errorf("write confstate: %w", err)
 	}
 	s.confState = cs
@@ -500,7 +500,7 @@ func (s *Storage) appendToWAL(ents []raftpb.Entry) error {
 func (s *Storage) saveHardState(hs raftpb.HardState) error {
 	hardStatePath := filepath.Join(s.dir, hardStateFolder, "current")
 	data := pbutil.MustMarshal(&hs)
-	if err := atomicWriteFile(hardStatePath, data, 0o640); err != nil {
+	if err := atomicWriteFile(hardStatePath, data); err != nil {
 		return fmt.Errorf("write hardstate:  %w", err)
 	}
 	return nil
@@ -509,7 +509,7 @@ func (s *Storage) saveHardState(hs raftpb.HardState) error {
 func (s *Storage) saveSnapshot(snap raftpb.Snapshot) error {
 	snapshotPath := filepath.Join(s.dir, snapshotFolder, "current")
 	data := pbutil.MustMarshal(&snap)
-	if err := atomicWriteFile(snapshotPath, data, 0o640); err != nil {
+	if err := atomicWriteFile(snapshotPath, data); err != nil {
 		return fmt.Errorf("write snapshot: %w", err)
 	}
 	s.snap = snap
@@ -536,7 +536,7 @@ func (s *Storage) findSingleFile(dir string) (string, error) {
 	return fileName, nil
 }
 
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+func atomicWriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	tmp, err := os.CreateTemp(dir, base+".tmp-*")
@@ -595,4 +595,21 @@ func (s *Storage) IsStorageEmpty() (bool, error) {
 	}
 
 	return true, nil
+}
+
+// SnapshotIndex returns the index of the actual data snapshot file.
+// Returns 0 if no snapshot file exists.
+// This is used by Node.recoverState() to determine which WAL entries to replay.
+func (s *Storage) SnapshotIndex() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.snap.Metadata.Index
+}
+
+// SnapshotData returns the raw snapshot data for restoration.
+// Returns nil if no snapshot exists or snapshot has no data.
+func (s *Storage) SnapshotData() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.snap.Data
 }

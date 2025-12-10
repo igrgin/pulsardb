@@ -13,6 +13,14 @@ func NewStore() *Store {
 	}
 }
 
+func (s *Store) GetData() map[string]any {
+	return s.data
+}
+
+func (s *Store) len() int {
+	return len(s.data)
+}
+
 func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
