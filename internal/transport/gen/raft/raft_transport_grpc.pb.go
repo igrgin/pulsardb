@@ -4,7 +4,7 @@
 // - protoc             v6.33.1
 // source: raft_transport.proto
 
-package raft_events
+package rafttransportpb
 
 import (
 	context "context"
@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RaftTransportService_SendRaftMessage_FullMethodName = "/raft_events.RaftTransportService/SendRaftMessage"
+	RaftTransportService_SendRaftMessage_FullMethodName = "/raft.RaftTransportService/SendRaftMessage"
+	RaftTransportService_GetReadIndex_FullMethodName    = "/raft.RaftTransportService/GetReadIndex"
 )
 
 // RaftTransportServiceClient is the client API for RaftTransportService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RaftTransportServiceClient interface {
 	SendRaftMessage(ctx context.Context, in *RaftMessage, opts ...grpc.CallOption) (*RaftMessageResponse, error)
+	GetReadIndex(ctx context.Context, in *GetReadIndexRequest, opts ...grpc.CallOption) (*GetReadIndexResponse, error)
 }
 
 type raftTransportServiceClient struct {
@@ -47,11 +49,22 @@ func (c *raftTransportServiceClient) SendRaftMessage(ctx context.Context, in *Ra
 	return out, nil
 }
 
+func (c *raftTransportServiceClient) GetReadIndex(ctx context.Context, in *GetReadIndexRequest, opts ...grpc.CallOption) (*GetReadIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetReadIndexResponse)
+	err := c.cc.Invoke(ctx, RaftTransportService_GetReadIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RaftTransportServiceServer is the server API for RaftTransportService service.
 // All implementations must embed UnimplementedRaftTransportServiceServer
 // for forward compatibility.
 type RaftTransportServiceServer interface {
 	SendRaftMessage(context.Context, *RaftMessage) (*RaftMessageResponse, error)
+	GetReadIndex(context.Context, *GetReadIndexRequest) (*GetReadIndexResponse, error)
 	mustEmbedUnimplementedRaftTransportServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedRaftTransportServiceServer struct{}
 
 func (UnimplementedRaftTransportServiceServer) SendRaftMessage(context.Context, *RaftMessage) (*RaftMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendRaftMessage not implemented")
+}
+func (UnimplementedRaftTransportServiceServer) GetReadIndex(context.Context, *GetReadIndexRequest) (*GetReadIndexResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetReadIndex not implemented")
 }
 func (UnimplementedRaftTransportServiceServer) mustEmbedUnimplementedRaftTransportServiceServer() {}
 func (UnimplementedRaftTransportServiceServer) testEmbeddedByValue()                              {}
@@ -104,16 +120,38 @@ func _RaftTransportService_SendRaftMessage_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RaftTransportService_GetReadIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetReadIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftTransportServiceServer).GetReadIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftTransportService_GetReadIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftTransportServiceServer).GetReadIndex(ctx, req.(*GetReadIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RaftTransportService_ServiceDesc is the grpc.ServiceDesc for RaftTransportService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RaftTransportService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "raft_events.RaftTransportService",
+	ServiceName: "raft.RaftTransportService",
 	HandlerType: (*RaftTransportServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "SendRaftMessage",
 			Handler:    _RaftTransportService_SendRaftMessage_Handler,
+		},
+		{
+			MethodName: "GetReadIndex",
+			Handler:    _RaftTransportService_GetReadIndex_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

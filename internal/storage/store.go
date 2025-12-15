@@ -13,11 +13,15 @@ func NewStore() *Store {
 	}
 }
 
-func (s *Store) GetData() map[string]any {
+func (s *Store) getData() map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.data
 }
 
 func (s *Store) len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return len(s.data)
 }
 
@@ -38,25 +42,4 @@ func (s *Store) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.data, key)
-}
-
-func (s *Store) DescribeType(key string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	v, ok := s.data[key]
-	if !ok {
-		return "missing"
-	}
-
-	switch v.(type) {
-	case string:
-		return "string"
-	case int:
-		return "int"
-	case float64:
-		return "float64"
-	default:
-		return "unknown"
-	}
 }

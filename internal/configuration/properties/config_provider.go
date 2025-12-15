@@ -3,7 +3,6 @@ package properties
 type ConfigProvider interface {
 	GetApplication() *ApplicationConfigProperties
 	GetTransport() *TransportConfigProperties
-	GetCommand() *CommandConfigProperties
 	GetRaft() *RaftConfigProperties
 }
 
@@ -21,10 +20,6 @@ func (c *AppConfigProvider) GetApplication() *ApplicationConfigProperties {
 
 func (c *AppConfigProvider) GetTransport() *TransportConfigProperties {
 	return &c.config.Transport
-}
-
-func (c *AppConfigProvider) GetCommand() *CommandConfigProperties {
-	return &c.config.Command
 }
 
 func (c *AppConfigProvider) GetRaft() *RaftConfigProperties {

@@ -2,38 +2,41 @@ package endpoint
 
 import (
 	"context"
+	"errors"
 	"log/slog"
-	"pulsardb/internal/raft"
-	commandevents "pulsardb/internal/transport/gen"
+	"pulsardb/internal/command"
+	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/util"
 )
 
 type GRPCServer struct {
-	commandevents.UnimplementedCommandEventServiceServer
-	RaftNode *raft.Node
+	commandeventspb.UnsafeCommandEventClientServiceServer
+	CommandService *command.Service
 }
 
-func (grpcs *GRPCServer) ProcessCommandEvent(
+func (s *GRPCServer) ProcessCommandEvent(
 	ctx context.Context,
-	request *commandevents.CommandEventRequest,
-) (*commandevents.CommandEventResponse, error) {
-	slog.Debug("received gRPC command",
-		"type", request.GetType().String(),
-		"key", request.GetKey(),
-	)
+	req *commandeventspb.CommandEventRequest,
+) (*commandeventspb.CommandEventResponse, error) {
+	slog.Debug("received gRPC command", "type", req.GetType(), "key", req.GetKey())
 
-	resp, err := grpcs.RaftNode.ProcessCommand(ctx, request)
+	resp, err := s.CommandService.ProcessCommand(ctx, req)
+	slog.Debug("response", "resp", resp)
 	if err != nil {
-		slog.Error("raft node failed to process command",
+		slog.Error("Database failed to process command",
 			"error", err,
-			"type", request.GetType().String(),
-			"key", request.GetKey(),
+			"event_id", req.GetEventId(),
+			"key", req.GetKey(),
 		)
-		return &commandevents.CommandEventResponse{
-			Type:         request.GetType(),
-			Success:      false,
-			ErrorMessage: "Error occurred during consensus. Try Again.",
-		}, nil
+
+		code := commandeventspb.ErrorCode_UNKNOWN
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = commandeventspb.ErrorCode_TIMEOUT
+		}
+
+		return transport.ErrorResponse(req.EventId, code, "Error occurred during consensus. Try Again."), nil
 	}
 
+	slog.Debug("ProcessCommandEvent response", "Response", resp)
 	return resp, nil
 }

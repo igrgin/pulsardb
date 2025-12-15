@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package command_events;
+package events;
 
-option go_package = "github.com/igrgin/pulsardb/transport/gen/command_events;command_events";
+option go_package = "github.com/you/pulsardb/internal/transport/gen/commandevents;commandeventspb";
 
 enum CommandEventType {
   SET = 0;
@@ -12,31 +12,46 @@ enum CommandEventType {
 
 message CommandEventValue {
   oneof value {
-    string string_value = 3;
-    int64  int_value    = 4;
-    double double_value = 5;
-    bool   bool_value   = 6;
-    bytes  bytes_value  = 7;
+    string string_value = 1;
+    int64  int_value = 2;
+    double double_value = 3;
+    bool   bool_value = 4;
+    bytes  bytes_value = 5;
   }
 }
 
 message CommandEventRequest {
-  uint64 eventId = 1;
+  uint64 event_id = 1;
   CommandEventType type = 2;
-  string key = 3;  // Used for SET, GET, DELETE
-  CommandEventValue cmd_value = 4; // Only used for SET
-  map<string, string> extra_attributes = 5;
-
+  string key = 3;
+  CommandEventValue value = 4;
 }
 
 message CommandEventResponse {
-  uint64 eventId = 2;
-  CommandEventType type = 3;
-  bool success = 4;
-  CommandEventValue cmd_value = 5; // Only used for GET
-  string error_message = 6;  // Only populated on error
+  uint64 event_id = 1;
+  bool success = 3;
+  CommandEventValue value = 4;
+  CommandError error = 5;
 }
 
-service CommandEventService {
+message CommandError {
+  ErrorCode code = 1;
+  string message = 2;
+}
+
+enum ErrorCode {
+  UNKNOWN = 0;
+  KEY_NOT_FOUND = 1;
+  INVALID_REQUEST = 2;
+  NOT_LEADER = 3;
+  NO_QUORUM = 4;
+  TIMEOUT = 5;
+}
+
+message BatchedCommands {
+  repeated CommandEventRequest commands = 1;
+}
+
+service CommandEventClientService {
   rpc ProcessCommandEvent(CommandEventRequest) returns (CommandEventResponse);
 }

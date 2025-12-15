@@ -2,45 +2,66 @@ package raft
 
 import (
 	"context"
-
-	raftevents "pulsardb/internal/raft/gen"
-	commandevents "pulsardb/internal/transport/gen"
+	"pulsardb/internal/transport/gen/commandevents"
+	rafttransportpb "pulsardb/internal/transport/gen/raft"
 
 	"google.golang.org/grpc"
 )
 
-// Client defines the interface for peer communication.
 type Client interface {
-	SendRaftMessage(ctx context.Context, in *raftevents.RaftMessage, opts ...grpc.CallOption) (*raftevents.RaftMessageResponse, error)
-	ProcessCommandEvent(ctx context.Context, in *commandevents.CommandEventRequest, opts ...grpc.CallOption) (*commandevents.CommandEventResponse, error)
+	SendRaftMessage(ctx context.Context, in *rafttransportpb.RaftMessage, opts ...grpc.CallOption) (*rafttransportpb.RaftMessageResponse, error)
+	GetReadIndex(ctx *context.Context, in *rafttransportpb.GetReadIndexRequest, opts ...grpc.CallOption) (*rafttransportpb.GetReadIndexResponse, error)
+	ProcessCommandEvent(ctx context.Context, in *commandeventspb.CommandEventRequest, opts ...grpc.CallOption) (*commandeventspb.CommandEventResponse, error)
+
+	Close() error
 }
 
-// combinedClient implements Client by delegating to underlying gRPC clients.
 type combinedClient struct {
-	raftClient    raftevents.RaftTransportServiceClient
-	commandClient commandevents.CommandEventServiceClient
+	raftConn   *grpc.ClientConn
+	cmdConn    *grpc.ClientConn
+	raftClient rafttransportpb.RaftTransportServiceClient
+	cmdClient  commandeventspb.CommandEventClientServiceClient
 }
 
-// newCombinedClient creates a new combined client from a gRPC connection.
-func newCombinedClient(conn grpc.ClientConnInterface) *combinedClient {
+func newCombinedClient(raftConn, cmdConn *grpc.ClientConn) *combinedClient {
 	return &combinedClient{
-		raftClient:    raftevents.NewRaftTransportServiceClient(conn),
-		commandClient: commandevents.NewCommandEventServiceClient(conn),
+		raftConn:   raftConn,
+		cmdConn:    cmdConn,
+		raftClient: rafttransportpb.NewRaftTransportServiceClient(raftConn),
+		cmdClient:  commandeventspb.NewCommandEventClientServiceClient(cmdConn),
 	}
+}
+
+func (c *combinedClient) Close() error {
+	var err1, err2 error
+	if c.raftConn != nil {
+		err1 = c.raftConn.Close()
+	}
+	if c.cmdConn != nil {
+		err2 = c.cmdConn.Close()
+	}
+	if err1 != nil {
+		return err1
+	}
+	return err2
 }
 
 func (c *combinedClient) SendRaftMessage(
 	ctx context.Context,
-	in *raftevents.RaftMessage,
+	in *rafttransportpb.RaftMessage,
 	opts ...grpc.CallOption,
-) (*raftevents.RaftMessageResponse, error) {
+) (*rafttransportpb.RaftMessageResponse, error) {
 	return c.raftClient.SendRaftMessage(ctx, in, opts...)
 }
 
 func (c *combinedClient) ProcessCommandEvent(
 	ctx context.Context,
-	in *commandevents.CommandEventRequest,
+	in *commandeventspb.CommandEventRequest,
 	opts ...grpc.CallOption,
-) (*commandevents.CommandEventResponse, error) {
-	return c.commandClient.ProcessCommandEvent(ctx, in, opts...)
+) (*commandeventspb.CommandEventResponse, error) {
+	return c.cmdClient.ProcessCommandEvent(ctx, in, opts...)
+}
+
+func (c *combinedClient) GetReadIndex(ctx *context.Context, req *rafttransportpb.GetReadIndexRequest, opts ...grpc.CallOption) (*rafttransportpb.GetReadIndexResponse, error) {
+	return c.raftClient.GetReadIndex(*ctx, req, opts...)
 }

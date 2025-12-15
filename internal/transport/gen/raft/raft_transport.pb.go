@@ -4,7 +4,7 @@
 // 	protoc        v6.33.1
 // source: raft_transport.proto
 
-package raft_events
+package rafttransportpb
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -23,7 +23,7 @@ const (
 
 type RaftMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // serialized go.etcd.io/raft/v3/raftpb.Message
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -109,17 +109,111 @@ func (x *RaftMessageResponse) GetOk() bool {
 	return false
 }
 
+type GetReadIndexRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FromNode      uint64                 `protobuf:"varint,1,opt,name=from_node,json=fromNode,proto3" json:"from_node,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetReadIndexRequest) Reset() {
+	*x = GetReadIndexRequest{}
+	mi := &file_raft_transport_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetReadIndexRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetReadIndexRequest) ProtoMessage() {}
+
+func (x *GetReadIndexRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_raft_transport_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetReadIndexRequest.ProtoReflect.Descriptor instead.
+func (*GetReadIndexRequest) Descriptor() ([]byte, []int) {
+	return file_raft_transport_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetReadIndexRequest) GetFromNode() uint64 {
+	if x != nil {
+		return x.FromNode
+	}
+	return 0
+}
+
+type GetReadIndexResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReadIndex     uint64                 `protobuf:"varint,1,opt,name=read_index,json=readIndex,proto3" json:"read_index,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetReadIndexResponse) Reset() {
+	*x = GetReadIndexResponse{}
+	mi := &file_raft_transport_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetReadIndexResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetReadIndexResponse) ProtoMessage() {}
+
+func (x *GetReadIndexResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_raft_transport_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetReadIndexResponse.ProtoReflect.Descriptor instead.
+func (*GetReadIndexResponse) Descriptor() ([]byte, []int) {
+	return file_raft_transport_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetReadIndexResponse) GetReadIndex() uint64 {
+	if x != nil {
+		return x.ReadIndex
+	}
+	return 0
+}
+
 var File_raft_transport_proto protoreflect.FileDescriptor
 
 const file_raft_transport_proto_rawDesc = "" +
 	"\n" +
-	"\x14raft_transport.proto\x12\vraft_events\"!\n" +
+	"\x14raft_transport.proto\x12\x04raft\"!\n" +
 	"\vRaftMessage\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"%\n" +
 	"\x13RaftMessageResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok2e\n" +
-	"\x14RaftTransportService\x12M\n" +
-	"\x0fSendRaftMessage\x12\x18.raft_events.RaftMessage\x1a .raft_events.RaftMessageResponseB-Z+pulsardb/internal/transport/gen;raft_eventsb\x06proto3"
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"2\n" +
+	"\x13GetReadIndexRequest\x12\x1b\n" +
+	"\tfrom_node\x18\x01 \x01(\x04R\bfromNode\"5\n" +
+	"\x14GetReadIndexResponse\x12\x1d\n" +
+	"\n" +
+	"read_index\x18\x01 \x01(\x04R\treadIndex2\x9e\x01\n" +
+	"\x14RaftTransportService\x12?\n" +
+	"\x0fSendRaftMessage\x12\x11.raft.RaftMessage\x1a\x19.raft.RaftMessageResponse\x12E\n" +
+	"\fGetReadIndex\x12\x19.raft.GetReadIndexRequest\x1a\x1a.raft.GetReadIndexResponseBEZCgithub.com/you/pulsardb/internal/transport/gen/raft;rafttransportpbb\x06proto3"
 
 var (
 	file_raft_transport_proto_rawDescOnce sync.Once
@@ -133,16 +227,20 @@ func file_raft_transport_proto_rawDescGZIP() []byte {
 	return file_raft_transport_proto_rawDescData
 }
 
-var file_raft_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_raft_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_raft_transport_proto_goTypes = []any{
-	(*RaftMessage)(nil),         // 0: raft_events.RaftMessage
-	(*RaftMessageResponse)(nil), // 1: raft_events.RaftMessageResponse
+	(*RaftMessage)(nil),          // 0: raft.RaftMessage
+	(*RaftMessageResponse)(nil),  // 1: raft.RaftMessageResponse
+	(*GetReadIndexRequest)(nil),  // 2: raft.GetReadIndexRequest
+	(*GetReadIndexResponse)(nil), // 3: raft.GetReadIndexResponse
 }
 var file_raft_transport_proto_depIdxs = []int32{
-	0, // 0: raft_events.RaftTransportService.SendRaftMessage:input_type -> raft_events.RaftMessage
-	1, // 1: raft_events.RaftTransportService.SendRaftMessage:output_type -> raft_events.RaftMessageResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	0, // 0: raft.RaftTransportService.SendRaftMessage:input_type -> raft.RaftMessage
+	2, // 1: raft.RaftTransportService.GetReadIndex:input_type -> raft.GetReadIndexRequest
+	1, // 2: raft.RaftTransportService.SendRaftMessage:output_type -> raft.RaftMessageResponse
+	3, // 3: raft.RaftTransportService.GetReadIndex:output_type -> raft.GetReadIndexResponse
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -159,7 +257,7 @@ func file_raft_transport_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_raft_transport_proto_rawDesc), len(file_raft_transport_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,95 +1,62 @@
 package raft
 
 import (
+	"context"
 	"log/slog"
+	rafttransportpb "pulsardb/internal/transport/gen/raft"
+	"runtime"
 	"sync"
-	"sync/atomic"
+	"time"
 
-	"pulsardb/internal/command"
 	"pulsardb/internal/configuration/properties"
-	"pulsardb/internal/storage"
-	commandevents "pulsardb/internal/transport/gen"
 
 	etcdraft "go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Node represents a raft consensus node.
 type Node struct {
-	Id           uint64
-	raftNode     etcdraft.Node
-	localAddress string
-
-	// Services
-	storage    *Storage
-	storeSvc   *storage.Service
-	commandSvc *command.Service
-
-	// Cluster membership
-	peers     map[uint64]string
-	clients   map[uint64]Client
-	confState raftpb.ConfState
-
-	// Leader tracking
-	isLeader bool
-	leaderID uint64
-
-	// Proposal handling
-	pending   map[uint64]chan *commandevents.CommandEventResponse
-	nextReqID uint64
-
-	// Linearizable reads
-	readWaiters map[string]chan uint64
-	readMu      sync.Mutex
-
-	// State tracking
-	lastApplied uint64
-
-	// Synchronization
-	mu sync.RWMutex
-
-	// Lifecycle
-	stopCh    chan struct{}
-	stoppedWg sync.WaitGroup
-
-	tickInterval uint64
-	snapCount    uint64
-	Timeout      uint64
+	Id          uint64
+	raftNode    etcdraft.Node
+	storage     *Storage
+	raftPeers   map[uint64]string
+	clientPeers map[uint64]string
+	clients     map[uint64]Client
+	confState   raftpb.ConfState
+	mu          sync.RWMutex
+	Timeout     uint64
+	sendQueues  []chan raftpb.Message
+	sendStopCh  chan struct{}
+	sendWg      sync.WaitGroup
 }
 
-// NewNode creates a new raft node with the given configuration.
-func NewNode(rc *properties.RaftConfigProperties, storeSvc *storage.Service, commandSvc *command.Service, localAddr string) (*Node, error) {
+func NewNode(rc *properties.RaftConfigProperties, localAddr string) (*Node, error) {
 	cfg, err := newNodeConfig(rc, localAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	n := &Node{
-		Id:           rc.NodeId,
-		localAddress: localAddr,
-		storage:      cfg.storage,
-		storeSvc:     storeSvc,
-		commandSvc:   commandSvc,
-		peers:        rc.Peers,
-		clients:      make(map[uint64]Client),
-		pending:      make(map[uint64]chan *commandevents.CommandEventResponse),
-		stopCh:       make(chan struct{}),
-		readWaiters:  make(map[string]chan uint64),
-		lastApplied:  cfg.lastIndex,
-		confState:    cfg.storage.ConfState(),
-		tickInterval: rc.TickInterval,
-		snapCount:    rc.SnapCount,
-		Timeout:      rc.Timeout,
+		Id:          rc.NodeId,
+		storage:     cfg.storage,
+		raftPeers:   rc.RaftPeers,
+		clientPeers: rc.ClientPeers,
+		clients:     make(map[uint64]Client),
+		confState:   cfg.storage.ConfState(),
+		Timeout:     rc.Timeout,
+		raftNode:    cfg.raftNode,
 	}
 
-	n.raftNode = cfg.raftNode
-
-	if err := n.initAllPeerClients(); err != nil {
+	if err := n.InitAllPeerClients(); err != nil {
 		return nil, err
 	}
 
-	slog.Info("raft node created", "id", rc.NodeId)
+	workers := min(runtime.GOMAXPROCS(0), 8)
+	queueSize := 1024
+	n.initSendPool(workers, queueSize)
+
+	slog.Info("raft Node created", "id", rc.NodeId)
 	return n, nil
 }
 
@@ -101,177 +68,97 @@ func (n *Node) Status() etcdraft.Status {
 	return n.raftNode.Status()
 }
 
-func (n *Node) Start() {
-	// CRITICAL:  Recover application state BEFORE starting the raft loop
-	if err := n.recoverState(); err != nil {
-		slog.Error("failed to recover state", "node_id", n.Id, "error", err)
-	}
-
-	n.restoreFromConfState()
-	n.startLoop()
+func (n *Node) Storage() *Storage {
+	return n.storage
 }
 
-func (n *Node) Stop() {
-	close(n.stopCh)
-	n.stoppedWg.Wait()
-
-	if err := n.storage.Close(); err != nil {
-		slog.Error("failed to close raft storage", "error", err)
-	}
-
-	slog.Info("raft node stopped", "id", n.Id)
+func (n *Node) ConfState() raftpb.ConfState {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.confState
 }
 
-// recoverState rebuilds the application's KV store from snapshot and WAL.
-func (n *Node) recoverState() error {
-	slog.Info("recovering application state", "node_id", n.Id)
-
-	// 1) Get the actual snapshot index from the storage (NOT from MemoryStorage)
-	//    This is the index of the real data snapshot file, or 0 if none exists
-	snapIndex := n.storage.SnapshotIndex()
-	snapData := n.storage.SnapshotData()
-
-	slog.Debug("recovery info",
-		"node_id", n.Id,
-		"snapshot_index", snapIndex,
-		"has_snapshot_data", len(snapData) > 0,
-	)
-
-	// 2) Restore from snapshot data if present
-	if len(snapData) > 0 {
-		slog.Info("restoring KV store from snapshot",
-			"node_id", n.Id,
-			"index", snapIndex,
-			"data_size", len(snapData),
-		)
-		if err := n.storeSvc.RestoreFromSnapshot(snapData); err != nil {
-			return err
-		}
-		slog.Info("restored from snapshot",
-			"node_id", n.Id,
-			"keys", n.storeSvc.Len(),
-		)
-	}
-
-	// 3) Get committed entries AFTER the snapshot index
-	entries, err := n.storage.EntriesAfter(snapIndex)
-	if err != nil {
-		return err
-	}
-
-	if len(entries) == 0 {
-		slog.Info("no WAL entries to replay",
-			"node_id", n.Id,
-			"snapshot_index", snapIndex,
-		)
-		// Still set lastApplied from hardstate if we have it
-		if snapIndex > n.lastApplied {
-			n.lastApplied = snapIndex
-		}
-		return nil
-	}
-
-	slog.Info("replaying WAL entries to KV store",
-		"node_id", n.Id,
-		"count", len(entries),
-		"from_index", entries[0].Index,
-		"to_index", entries[len(entries)-1].Index,
-	)
-
-	// 4) Replay each committed entry to the application store
-	replayedCount := 0
-	for _, entry := range entries {
-		if err := n.replayEntry(entry); err != nil {
-			slog.Error("failed to replay entry",
-				"node_id", n.Id,
-				"index", entry.Index,
-				"error", err,
-			)
-			// Continue with other entries
-		} else {
-			replayedCount++
-		}
-	}
-
-	n.lastApplied = entries[len(entries)-1].Index
-
-	slog.Info("application state recovery complete",
-		"node_id", n.Id,
-		"last_applied", n.lastApplied,
-		"entries_replayed", replayedCount,
-		"storage_keys", n.storeSvc.Len(),
-	)
-
-	return nil
+func (n *Node) SetConfState(cs raftpb.ConfState) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.confState = cs
 }
 
-// replayEntry applies a single entry to the application store during recovery.
-func (n *Node) replayEntry(entry raftpb.Entry) error {
-	switch entry.Type {
-	case raftpb.EntryConfChange:
-		// Conf changes don't affect KV store, just log them
-		var cc raftpb.ConfChange
-		if err := cc.Unmarshal(entry.Data); err != nil {
-			return err
-		}
-		slog.Debug("skipped conf change during KV replay",
-			"node_id", n.Id,
-			"index", entry.Index,
-			"type", cc.Type.String(),
-			"target_node", cc.NodeID,
-		)
-		return nil
+func (n *Node) initSendPool(workers, queueSize int) {
+	if workers <= 0 {
+		workers = 1
+	}
+	if queueSize <= 0 {
+		queueSize = 1
+	}
+	n.sendStopCh = make(chan struct{})
+	n.sendQueues = make([]chan raftpb.Message, workers)
 
-	case raftpb.EntryNormal:
-		if len(entry.Data) == 0 {
-			// Empty entry (leader election, etc.)
-			return nil
-		}
+	for i := 0; i < workers; i++ {
+		ch := make(chan raftpb.Message, queueSize)
+		n.sendQueues[i] = ch
 
-		var req commandevents.CommandEventRequest
-		if err := proto.Unmarshal(entry.Data, &req); err != nil {
-			return err
-		}
-
-		// Apply directly to storage (bypass command queue during replay)
-		if err := n.applyToStorage(&req); err != nil {
-			return err
-		}
-
-		slog.Debug("replayed entry to KV store",
-			"node_id", n.Id,
-			"index", entry.Index,
-			"type", req.GetType().String(),
-			"key", req.GetKey(),
-		)
-		return nil
-
-	default:
-		slog.Warn("unknown entry type during replay",
-			"node_id", n.Id,
-			"index", entry.Index,
-			"type", entry.Type.String(),
-		)
-		return nil
+		n.sendWg.Add(1)
+		go func(in <-chan raftpb.Message) {
+			defer n.sendWg.Done()
+			for {
+				select {
+				case msg, ok := <-in:
+					if !ok {
+						return
+					}
+					n.sendMessage(msg)
+				case <-n.sendStopCh:
+					return
+				}
+			}
+		}(ch)
 	}
 }
 
-// applyToStorage applies a command directly to the KV store.
-func (n *Node) applyToStorage(req *commandevents.CommandEventRequest) error {
-	switch req.GetType() {
-	case commandevents.CommandEventType_SET:
-		val := command.ValueFromProto(req.GetCmdValue())
-		n.storeSvc.Set(req.GetKey(), val)
-	case commandevents.CommandEventType_DELETE:
-		n.storeSvc.Delete(req.GetKey())
-	case commandevents.CommandEventType_GET:
-		// GET doesn't modify state
+func (n *Node) stopSendPool() {
+	if n.sendStopCh == nil {
+		return
 	}
-	return nil
+	close(n.sendStopCh)
+	for _, ch := range n.sendQueues {
+		close(ch)
+	}
+	n.sendWg.Wait()
 }
 
-func (n *Node) nextRequestID() uint64 {
-	return atomic.AddUint64(&n.nextReqID, 1)
+func (n *Node) Peers() map[uint64]string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	peersCopy := make(map[uint64]string, len(n.raftPeers))
+	for k, v := range n.raftPeers {
+		peersCopy[k] = v
+	}
+	return peersCopy
+}
+
+func (n *Node) GetTimeout() uint64 {
+	return n.Timeout
+}
+
+func (n *Node) Propose(ctx context.Context, data []byte) error {
+	return n.raftNode.Propose(ctx, data)
+}
+
+func (n *Node) ReadIndex(ctx context.Context, rctx []byte) error {
+	return n.raftNode.ReadIndex(ctx, rctx)
+}
+
+func (n *Node) ApplyConfChange(cc raftpb.ConfChange) *raftpb.ConfState {
+	return n.raftNode.ApplyConfChange(cc)
+}
+
+func (n *Node) ReportUnreachable(id uint64) {
+	n.raftNode.ReportUnreachable(id)
+}
+
+func (n *Node) ReportSnapshot(id uint64, status etcdraft.SnapshotStatus) {
+	n.raftNode.ReportSnapshot(id, status)
 }
 
 func (n *Node) restoreFromConfState() {
@@ -282,9 +169,9 @@ func (n *Node) restoreFromConfState() {
 	)
 
 	if len(n.confState.Voters) == 0 {
-		slog.Debug("confState empty, using configured peers",
+		slog.Debug("confState empty, using configured raftPeers",
 			"node_id", n.Id,
-			"peers", n.peers,
+			"raftPeers", n.raftPeers,
 		)
 		return
 	}
@@ -294,7 +181,7 @@ func (n *Node) restoreFromConfState() {
 			continue
 		}
 
-		addr, ok := n.peers[voterID]
+		addr, ok := n.raftPeers[voterID]
 		if !ok {
 			slog.Warn("no address for voter",
 				"node_id", n.Id,
@@ -314,12 +201,152 @@ func (n *Node) restoreFromConfState() {
 					"addr", addr,
 					"error", err,
 				)
-			} else {
-				slog.Debug("restored peer client",
-					"node_id", n.Id,
-					"peer_id", voterID,
-				)
 			}
+
+			slog.Debug("restored peer client",
+				"node_id", n.Id,
+				"peer_id", voterID,
+			)
 		}
 	}
+}
+
+func (n *Node) InitAllPeerClients() error {
+	for id, raftAddr := range n.raftPeers {
+		if id == n.Id {
+			continue
+		}
+
+		if err := n.initPeerClient(id, raftAddr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (n *Node) initPeerClient(id uint64, raftAddr string) error {
+	clientAddr := n.clientPeers[id]
+
+	raftConn, err := grpc.NewClient(raftAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return err
+	}
+
+	clientConn, err := grpc.NewClient(clientAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		_ = raftConn.Close()
+		return err
+	}
+
+	client := newCombinedClient(raftConn, clientConn)
+
+	n.mu.Lock()
+	n.clients[id] = client
+	n.mu.Unlock()
+
+	slog.Debug("initialized peer client", "peer_id", id, "raftAddr", raftAddr, "clientAddr", clientAddr)
+	return nil
+}
+
+func (n *Node) sendMessages(msgs []raftpb.Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	if len(n.sendQueues) == 0 {
+
+		for _, msg := range msgs {
+			if msg.To != 0 {
+				n.sendMessage(msg)
+			}
+		}
+		return
+	}
+
+	for _, msg := range msgs {
+		if msg.To == 0 {
+			continue
+		}
+		idx := int(msg.To % uint64(len(n.sendQueues)))
+		q := n.sendQueues[idx]
+
+		select {
+		case q <- msg:
+		default:
+			slog.Debug("raft send queue full; dropping message",
+				"to", msg.To,
+				"type", msg.Type,
+			)
+		}
+	}
+}
+
+func (n *Node) sendMessage(msg raftpb.Message) {
+	n.mu.RLock()
+	client, ok := n.clients[msg.To]
+	n.mu.RUnlock()
+
+	if !ok {
+		slog.Warn("no client for peer",
+			"to", msg.To,
+			"type", msg.Type,
+		)
+		n.raftNode.ReportUnreachable(msg.To)
+		return
+	}
+
+	data, err := msg.Marshal()
+	if err != nil {
+		slog.Error("failed to marshal raft message",
+			"to", msg.To,
+			"type", msg.Type,
+			"error", err,
+		)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(n.Timeout)*time.Second)
+	defer cancel()
+
+	if _, err := client.SendRaftMessage(ctx, &rafttransportpb.RaftMessage{Data: data}); err != nil {
+		slog.Debug("failed to send raft message",
+			"to", msg.To,
+			"type", msg.Type,
+			"error", err,
+		)
+		n.raftNode.ReportUnreachable(msg.To)
+	}
+}
+
+func (n *Node) GetLeaderClient(leaderID uint64) (Client, bool) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	client, ok := n.clients[leaderID]
+	return client, ok
+}
+
+func (n *Node) StopClients() {
+	n.mu.Lock()
+	clients := n.clients
+	n.clients = make(map[uint64]Client)
+	n.mu.Unlock()
+
+	for id, c := range clients {
+		if c == nil {
+			continue
+		}
+		if err := c.Close(); err != nil {
+			slog.Warn("failed to close peer client", "peer_id", id, "error", err)
+		}
+	}
+}
+
+func (n *Node) Stop() {
+	n.stopSendPool()
+	n.StopClients()
+	n.raftNode.Stop()
+	slog.Info("raft Node stopped", "id", n.Id)
 }

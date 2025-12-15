@@ -1,17 +1,17 @@
 transport:
-  client-port: 50055
-  raft-port: 50056
+  client-port: 50057
+  raft-port: 50058
 
 raft:
-  node-id: 3
+  node-id: 4
   raft-peers:
     1: "127.0.0.1:50052"
     2: "127.0.0.1:50054"
-    4: "127.0.0.1:50058"
+    3: "127.0.0.1:50056"
     5: "127.0.0.1:50060"
   client-peers:
     1: "127.0.0.1:50051"
     2: "127.0.0.1:50053"
-    4: "127.0.0.1:50057"
+    3: "127.0.0.1:50055"
     5: "127.0.0.1:50059"
-  storage-base-dir: "internal/raft/storage/local3"
+  storage-base-dir: "internal/raft/storage/local4"

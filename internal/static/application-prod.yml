@@ -1,0 +1,33 @@
+application:
+  log-level: ${LOG_LEVEL}
+
+transport:
+  client-port: ${CLIENT_PORT}
+  raft-port: ${RAFT_PORT}
+  address: ${TRANSPORT_ADDRESS}
+  timeout: ${TRANSPORT_TIMEOUT}
+
+raft:
+  node-id: ${NODE_ID}
+  raft-peers:
+    2: ${NODE_2_RAFT_ADDRESS}
+    3: ${NODE_3_RAFT_ADDRESS}
+  client-peers:
+    2: ${NODE_2_CLIENT_ADDRESS}
+    3: ${NODE_3_CLIENT_ADDRESS}
+  storage-base-dir: ${STORAGE_BASE_DIR}
+  batch-size: ${RAFT_BATCH_SIZE}
+  batch-max-wait: ${BATCH_MAX_WAIT}
+  tick-interval: ${TICK_INTERVAL}
+  snap-count: ${SNAP_COUNT}
+  timeout: ${RAFT_TIMEOUT}
+  max-concurrent-streams: ${MAX_CONCURRENT_STREAMS}
+  step-inbox-size: ${STEP_INBOX_SIZE}
+  etcd:
+    election-tick: ${ETCD_ELECTION_TICK}
+    heartbeat-tick: ${ETCD_HEARTBEAT_TICK}
+    max-size-per-msg: ${MAX_SIZE_PER_MSG}
+    max-inflight-msgs: ${MAX_INFLIGHT_MSG}
+    max-uncommitted-entries-size: ${MAX_UNCOMMITTED_ENTRIES_SIZE}
+  wal:
+    no-sync: ${WAL_NO_SYNC}

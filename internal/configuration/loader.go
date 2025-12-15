@@ -9,17 +9,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func LoadConfig() (*properties.Config, *properties.CommandConfigProperties, *properties.RaftConfigProperties, *properties.TransportConfigProperties, error) {
+func LoadConfig() (*properties.Config, *properties.RaftConfigProperties, *properties.TransportConfigProperties, error) {
 	config, err := load()
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to load config with error: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to load config with error: %v", err)
 	}
 
 	cfgProvider := properties.NewProvider(config)
-	commandConfig := cfgProvider.GetCommand()
 	raftConfig := cfgProvider.GetRaft()
 	transportConfig := cfgProvider.GetTransport()
-	return config, commandConfig, raftConfig, transportConfig, nil
+	return config, raftConfig, transportConfig, nil
 }
 
 func load() (*properties.Config, error) {

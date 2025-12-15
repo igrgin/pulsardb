@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,14 +12,17 @@ type Logger struct {
 }
 
 func NewSlogRaftLogger() *Logger {
-	// Force raft logger to debug level, independent of global level.
-	// If your global logger is already set on slog.Default(), you can just use it.
 	return &Logger{
 		l: slog.Default().WithGroup("raft"),
 	}
 }
 
+var bg = context.Background()
+
 func (l *Logger) Debug(v ...interface{}) {
+	if !l.l.Enabled(bg, slog.LevelDebug) {
+		return
+	}
 	l.l.Debug(fmt.Sprint(v...))
 }
 
@@ -35,7 +39,6 @@ func (l *Logger) Error(v ...interface{}) {
 }
 
 func (l *Logger) Fatal(v ...interface{}) {
-	// etcd/raft expects this to terminate the process
 	l.l.Error(fmt.Sprint(v...))
 	os.Exit(1)
 }
@@ -46,6 +49,9 @@ func (l *Logger) Panic(v ...interface{}) {
 }
 
 func (l *Logger) Debugf(format string, v ...interface{}) {
+	if !l.l.Enabled(bg, slog.LevelDebug) {
+		return
+	}
 	l.l.Debug(fmt.Sprintf(format, v...))
 }
 

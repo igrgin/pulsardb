@@ -1,17 +1,14 @@
 package transport
 
 import (
-	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"pulsardb/internal/command"
 	"pulsardb/internal/configuration/properties"
 	"pulsardb/internal/raft"
-	raftevents "pulsardb/internal/raft/gen"
 	"pulsardb/internal/transport/endpoint"
-	"pulsardb/internal/transport/gen"
-	"time"
+	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/raft"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -24,12 +21,13 @@ type Service struct {
 	raftPort             string
 	timeout              uint64
 	commandService       *command.Service
-	raftNode             *raft.Node
-	Server               *grpc.Server
+	raftService          *raft.Service
+	RaftServer           *grpc.Server
+	ClientServer         *grpc.Server
 	maxConcurrentStreams uint32
 }
 
-func NewTransportService(transportConfig *properties.TransportConfigProperties, commandService *command.Service, raftNode *raft.Node) *Service {
+func NewTransportService(transportConfig *properties.TransportConfigProperties, commandService *command.Service, raftService *raft.Service) *Service {
 	return &Service{
 		network:              transportConfig.Network,
 		address:              transportConfig.Address,
@@ -37,74 +35,63 @@ func NewTransportService(transportConfig *properties.TransportConfigProperties, 
 		raftPort:             transportConfig.RaftPort,
 		timeout:              transportConfig.Timeout,
 		commandService:       commandService,
-		raftNode:             raftNode,
+		raftService:          raftService,
 		maxConcurrentStreams: transportConfig.MaxConcurrentStreams,
 	}
 }
 
-func (ts *Service) StartServer() (net.Listener, net.Listener, error) {
-	clientLis, err := net.Listen(ts.network, net.JoinHostPort(ts.address, ts.clientPort))
-	if err != nil {
-		return nil, nil, err
-	}
-
+func (ts *Service) StartRaftServer() (net.Listener, error) {
 	raftLis, err := net.Listen(ts.network, net.JoinHostPort(ts.address, ts.raftPort))
 	if err != nil {
-		clientLis.Close()
-		return nil, nil, err
+		return nil, err
 	}
 
-	var opts []grpc.ServerOption
+	var raftOpts []grpc.ServerOption
+	raftOpts = append(raftOpts, grpc.MaxConcurrentStreams(ts.maxConcurrentStreams))
 
-	if ts.timeout >= ts.raftNode.Timeout {
-		slog.Info(fmt.Sprintf("Setting transport timeout to %d seconds", ts.timeout))
-		opts = append(opts,
-			grpc.UnaryInterceptor(timeoutInterceptor(time.Duration(ts.timeout)*time.Second)))
-	} else {
-		slog.Warn(fmt.Sprintf("Timeout can't be less than raft timeout. Setting transport timeout to %d seconds.", ts.raftNode.Timeout))
-		opts = append(opts,
-			grpc.UnaryInterceptor(timeoutInterceptor(time.Duration(ts.raftNode.Timeout)*time.Second)))
-	}
+	ts.RaftServer = grpc.NewServer(raftOpts...)
 
-	opts = append(opts, grpc.MaxConcurrentStreams(ts.maxConcurrentStreams))
+	rafttransportpb.RegisterRaftTransportServiceServer(
+		ts.RaftServer,
+		endpoint.NewRaftTransportServer(ts.raftService),
+	)
 
-	ts.Server = grpc.NewServer(opts...)
-
-	// Command service
-	command_events.RegisterCommandEventServiceServer(ts.Server, &endpoint.GRPCServer{RaftNode: ts.raftNode})
-
-	// Raft transport service
-	if ts.raftNode != nil {
-		raftevents.RegisterRaftTransportServiceServer(ts.Server, endpoint.NewRaftTransportServer(ts.raftNode))
-	}
-
-	reflection.Register(ts.Server)
-	slog.Info(fmt.Sprintf("transport listening at %s for client and %s for raft", clientLis.Addr().String(), raftLis.Addr().String()))
+	reflection.Register(ts.RaftServer)
+	slog.Info("transport listening for raft", "Raft_Addr", raftLis.Addr())
 
 	go func() {
-		if err := ts.Server.Serve(clientLis); err != nil {
-			slog.Error("failed to serve listener", "Error", err)
+		if err := ts.RaftServer.Serve(raftLis); err != nil {
+			slog.Error("failed to serve raft listener", "Error", err)
 		}
 	}()
 
-	go func() {
-		if err := ts.Server.Serve(raftLis); err != nil {
-			slog.Error("failed to serve listener", "Error", err)
-		}
-	}()
-
-	return clientLis, raftLis, nil
+	return raftLis, nil
 }
 
-func timeoutInterceptor(timeout time.Duration) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context,
-		req interface{},
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
-	) (interface{}, error) {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		return handler(ctx, req)
+func (ts *Service) StartClientServer() (net.Listener, error) {
+	clientLis, err := net.Listen(ts.network, net.JoinHostPort(ts.address, ts.clientPort))
+	if err != nil {
+		return nil, err
 	}
+
+	var clientOpts []grpc.ServerOption
+	clientOpts = append(clientOpts, grpc.MaxConcurrentStreams(ts.maxConcurrentStreams))
+
+	ts.ClientServer = grpc.NewServer(clientOpts...)
+
+	commandeventspb.RegisterCommandEventClientServiceServer(
+		ts.ClientServer,
+		&endpoint.GRPCServer{CommandService: ts.commandService},
+	)
+
+	reflection.Register(ts.ClientServer)
+	slog.Info("transport listening for client", "Client_Addr", clientLis.Addr())
+
+	go func() {
+		if err := ts.ClientServer.Serve(clientLis); err != nil {
+			slog.Error("failed to serve client listener", "Error", err)
+		}
+	}()
+
+	return clientLis, nil
 }

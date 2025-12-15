@@ -1,17 +1,26 @@
 app:
   profile: ${APP_PROFILE}
-  log-level: debug
+  log-level: info
+  quorum-wait-time: 30 # seconds
 
 transport:
   network: tcp
   address: 127.0.0.1
-  timeout: 60
-
-command:
-  queue-size: 10000
+  timeout: 60 # seconds
 
 raft:
-  tick-interval: 100 # X seconds
-  snap-count: 10_000 # Snapshot every X entries
-  timeout: 5 # X seconds
-  max-concurrent-streams: 5000
+  batch-size: 100
+  batch-max-wait: 2
+  tick-interval: 100 # milliseconds
+  snap-count: 100_000 # Snapshot every X entries
+  timeout: 10 # seconds
+  max-concurrent-streams: 1000
+  step-inbox-size: 4096
+  etcd:
+    election-tick: 10
+    heartbeat-tick: 1
+    max-size-per-msg: 1_048_576
+    max-inflight-msgs: 256
+    max-uncommitted-entries-size: 1_073_741_824
+  wal:
+    no-sync: true

@@ -10,47 +10,66 @@ import (
 	etcdraft "go.etcd.io/raft/v3"
 )
 
-// nodeConfig holds initialization configuration for a Node.
 type nodeConfig struct {
-	storage   *Storage
-	raftNode  etcdraft.Node
-	lastIndex uint64
+	storage      *Storage
+	raftNode     etcdraft.Node
+	AppliedIndex uint64
 }
 
-// newNodeConfig creates the raft storage and node based on configuration.
 func newNodeConfig(rc *properties.RaftConfigProperties, localAddr string) (*nodeConfig, error) {
-	raftStore, lastIndex, err := OpenStorage(rc.StorageBaseDir)
+	raftStore, appliedIndex, err := OpenStorage(rc.StorageBaseDir, rc.Wal.NoSync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create raft storage: %w", err)
 	}
 	slog.Debug("created raft storage", "dir", rc.StorageBaseDir)
 
-	c := &etcdraft.Config{
-		ID:                        rc.NodeId,
-		ElectionTick:              10,
-		HeartbeatTick:             1,
-		Storage:                   raftStore.RaftStorage(),
-		MaxSizePerMsg:             1024 * 1024,
-		MaxInflightMsgs:           256,
-		MaxUncommittedEntriesSize: 1 << 30,
-		Logger:                    NewSlogRaftLogger(),
-		Applied:                   lastIndex,
+	etcdCfg := rc.Etcd
+	electionTick := 10
+	if etcdCfg.ElectionTick != 0 {
+		electionTick = etcdCfg.ElectionTick
+	}
+	heartbeatTick := 1
+	if etcdCfg.HeartbeatTick != 0 {
+		heartbeatTick = etcdCfg.HeartbeatTick
+	}
+	maxSizePerMsg := uint64(1024 * 1024)
+	if etcdCfg.MaxSizePerMsg != 0 {
+		maxSizePerMsg = etcdCfg.MaxSizePerMsg
+	}
+	maxInflight := 256
+	if etcdCfg.MaxInflightMsgs != 0 {
+		maxInflight = etcdCfg.MaxInflightMsgs
+	}
+	maxUncommitted := uint64(1 << 30)
+	if etcdCfg.MaxUncommittedEntriesSize != 0 {
+		maxUncommitted = etcdCfg.MaxUncommittedEntriesSize
 	}
 
-	peersList := buildPeersList(rc.NodeId, localAddr, rc.Peers)
+	c := &etcdraft.Config{
+		ID:                        rc.NodeId,
+		ElectionTick:              electionTick,
+		HeartbeatTick:             heartbeatTick,
+		Storage:                   raftStore.RaftStorage(),
+		MaxSizePerMsg:             maxSizePerMsg,
+		MaxInflightMsgs:           maxInflight,
+		MaxUncommittedEntriesSize: maxUncommitted,
+		Logger:                    NewSlogRaftLogger(),
+		Applied:                   appliedIndex,
+	}
+
+	peersList := buildPeersList(rc.NodeId, localAddr, rc.RaftPeers)
 	raftNode, err := startOrRestartNode(c, raftStore, peersList)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start raft node:  %w", err)
+		return nil, fmt.Errorf("failed to start raft Node:  %w", err)
 	}
 
 	return &nodeConfig{
-		storage:   raftStore,
-		raftNode:  raftNode,
-		lastIndex: lastIndex,
+		storage:      raftStore,
+		raftNode:     raftNode,
+		AppliedIndex: appliedIndex,
 	}, nil
 }
 
-// startOrRestartNode creates a new raft node or restarts from existing state.
 func startOrRestartNode(c *etcdraft.Config, rs *Storage, peersList []etcdraft.Peer) (etcdraft.Node, error) {
 	isEmpty, err := rs.IsStorageEmpty()
 	if err != nil {
@@ -58,19 +77,17 @@ func startOrRestartNode(c *etcdraft.Config, rs *Storage, peersList []etcdraft.Pe
 	}
 
 	if isEmpty {
-		slog.Debug("starting new raft node", "peers", formatPeers(peersList))
+		slog.Debug("starting new raft Node", "raftPeers", formatPeers(peersList))
 		return etcdraft.StartNode(c, peersList), nil
 	}
 
-	slog.Debug("restarting raft node from saved state")
+	slog.Debug("restarting raft Node from saved state")
 	return etcdraft.RestartNode(c), nil
 }
 
-// buildPeersList converts peer map to raft. Peer slice.
 func buildPeersList(localID uint64, localAddr string, peers map[uint64]string) []etcdraft.Peer {
 	peerList := make([]etcdraft.Peer, 0, len(peers)+1)
 
-	// Always include local node for bootstrapping
 	peerList = append(peerList, etcdraft.Peer{
 		ID:      localID,
 		Context: []byte(localAddr),
@@ -89,7 +106,6 @@ func buildPeersList(localID uint64, localAddr string, peers map[uint64]string) [
 	return peerList
 }
 
-// formatPeers returns a human-readable string of peers for logging.
 func formatPeers(peers []etcdraft.Peer) string {
 	strs := make([]string, 0, len(peers))
 	for _, p := range peers {
