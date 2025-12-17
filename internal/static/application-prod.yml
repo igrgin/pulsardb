@@ -1,4 +1,4 @@
-application:
+app:
   log-level: ${LOG_LEVEL}
 
 transport:
