@@ -1,4 +1,4 @@
-package storage
+package store
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ type Service struct {
 	kv *Store
 }
 
-func NewStorageService() *Service {
+func NewService() *Service {
 	return &Service{
 		kv: NewStore(),
 	}
@@ -31,7 +31,7 @@ func (s *Service) Delete(key string) {
 	s.kv.Delete(key)
 }
 
-func (s *Service) GetSnapshot() ([]byte, error) {
+func (s *Service) Snapshot() ([]byte, error) {
 	s.kv.mu.RLock()
 	defer s.kv.mu.RUnlock()
 
@@ -53,7 +53,7 @@ func (s *Service) GetSnapshot() ([]byte, error) {
 	return proto.Marshal(snap)
 }
 
-func (s *Service) RestoreFromSnapshot(data []byte) error {
+func (s *Service) Restore(data []byte) error {
 	var snap snapshotpb.KVSnapshot
 	if err := proto.Unmarshal(data, &snap); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)

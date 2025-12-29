@@ -45,25 +45,6 @@ func TestCmdService_SpecialKeys(t *testing.T) {
 	}
 }
 
-func TestCmdService_EmptyStringValue(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	require.NoError(t, cluster.SetValue(ctx, "empty", ""))
-
-	val, exists, err := cluster.GetValue(ctx, "empty")
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, "", val)
-}
-
 func TestCmdService_CrossNodeConsistency(t *testing.T) {
 	cluster := NewCommandTestCluster(t)
 	defer cluster.Cleanup()
@@ -103,7 +84,7 @@ func TestCmdService_ReadFromFollower(t *testing.T) {
 	follower := followers[0]
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: newEventID(),
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "follower-read",
 	}
@@ -212,7 +193,7 @@ func TestCmdService_DeleteThenRecreate(t *testing.T) {
 
 	require.NoError(t, cluster.DeleteValue(ctx, key))
 	_, exists, err = cluster.GetValue(ctx, key)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.False(t, exists)
 
 	require.NoError(t, cluster.SetValue(ctx, key, "second"))

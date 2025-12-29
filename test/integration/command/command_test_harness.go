@@ -12,7 +12,7 @@ import (
 	"pulsardb/internal/command"
 	"pulsardb/internal/configuration/properties"
 	"pulsardb/internal/raft"
-	"pulsardb/internal/storage"
+	"pulsardb/internal/store"
 	"pulsardb/internal/transport/gen/commandevents"
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
 
@@ -37,7 +37,7 @@ type CommandTestNode struct {
 	RaftNode       *raft.Node
 	RaftService    *raft.Service
 	CmdService     *command.Service
-	StorageService *storage.Service
+	StorageService *store.Service
 	Batcher        *raft.Batcher
 	RaftServer     *grpc.Server
 	ClientServer   *grpc.Server
@@ -129,7 +129,6 @@ func (c *CommandTestCluster) startNode(
 		RaftPeers:      raftPeers,
 		ClientPeers:    clientPeers,
 		TickInterval:   10,
-		Timeout:        5,
 		SnapCount:      1000,
 		BatchSize:      10,
 		BatchMaxWait:   5,
@@ -147,7 +146,7 @@ func (c *CommandTestCluster) startNode(
 		return fmt.Errorf("new raft node: %w", err)
 	}
 
-	storageSvc := storage.NewStorageService()
+	storageSvc := store.NewStorageService()
 	holder := &cmdServiceHolder{}
 
 	raftSvc := raft.NewService(raftNode, storageSvc, rc, holder)
@@ -251,6 +250,10 @@ func (h *cmdServiceHolder) RegisterPending(eventID uint64, ch chan *commandevent
 
 func (h *cmdServiceHolder) UnregisterPending(eventID uint64) {
 	h.svc.UnregisterPending(eventID)
+}
+
+func (h *cmdServiceHolder) RestoreFromSnapshot(data []byte) error {
+	return h.svc.RestoreFromSnapshot(data)
 }
 
 type cmdTestRaftServer struct {

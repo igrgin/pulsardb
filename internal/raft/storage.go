@@ -24,8 +24,9 @@ const (
 )
 
 const (
-	snapshotFolder = "snapshot"
-	walFolder      = "wal"
+	snapshotFolder    = "snapshot"
+	walFolder         = "wal"
+	clusterMarkerFile = "cluster.id"
 )
 
 type Storage struct {
@@ -53,9 +54,14 @@ func OpenStorage(dir string, noSync bool) (*Storage, uint64, error) {
 		return nil, 0, fmt.Errorf("mkdir snapdata: %w", err)
 	}
 
+	walDir := filepath.Join(dir, walFolder)
+	if err := os.MkdirAll(walDir, 0o750); err != nil {
+		return nil, 0, fmt.Errorf("mkdir wal: %w", err)
+	}
+
 	opts := *wal.DefaultOptions
 	opts.NoSync = noSync
-	log, err := wal.Open(filepath.Join(dir, walFolder), &opts)
+	log, err := wal.Open(walDir, &opts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("wal.Open: %w", err)
 	}
@@ -100,12 +106,12 @@ func (s *Storage) replay() (uint64, error) {
 	var lastValidSnapData []byte
 
 	for idx := first; idx <= last; idx++ {
-		data, err := s.log.Read(idx)
+		logData, err := s.log.Read(idx)
 		if err != nil {
 			return 0, fmt.Errorf("wal.Read(%d): %w", idx, err)
 		}
 
-		recType, payload, err := unmarshalRecord(data)
+		recType, payload, err := unmarshalRecord(logData)
 		if err != nil {
 			return 0, fmt.Errorf("unmarshal record %d: %w", idx, err)
 		}
@@ -133,14 +139,14 @@ func (s *Storage) replay() (uint64, error) {
 			var snapMeta raftpb.SnapshotMetadata
 			pbutil.MustUnmarshal(&snapMeta, payload)
 
-			if data, err := s.loadSnapshotData(snapMeta.Index); err == nil {
+			if snapData, err := s.loadSnapshotData(snapMeta.Index); err == nil {
 				lastValidSnapMeta = &raftpb.SnapshotMetadata{}
 				*lastValidSnapMeta = snapMeta
-				lastValidSnapData = data
+				lastValidSnapData = snapData
 				s.confState = snapMeta.ConfState
 				slog.Debug("found valid snapshot", "index", snapMeta.Index)
 			} else {
-				slog.Warn("snapshot data file missing, probably compacted, skipping",
+				slog.Warn("snapshot data file missing, skipping",
 					"index", snapMeta.Index,
 					"error", err,
 				)
@@ -175,22 +181,12 @@ func (s *Storage) replay() (uint64, error) {
 			!errors.Is(err, etcdraft.ErrSnapOutOfDate) {
 			return 0, fmt.Errorf("apply snapshot: %w", err)
 		}
-	} else if len(s.confState.Voters) > 0 {
-		dummySnap := raftpb.Snapshot{
-			Metadata: raftpb.SnapshotMetadata{
-				Index:     s.hs.Commit,
-				Term:      s.hs.Term,
-				ConfState: s.confState,
-			},
+	}
+
+	if len(entries) > 0 {
+		if err := s.ms.Append(entries); err != nil {
+			return 0, fmt.Errorf("append entries: %w", err)
 		}
-		if err := s.ms.ApplySnapshot(dummySnap); err != nil &&
-			!errors.Is(err, etcdraft.ErrSnapOutOfDate) {
-			return 0, fmt.Errorf("apply confState snapshot: %w", err)
-		}
-		slog.Debug("applied confState to MemoryStorage via dummy snapshot",
-			"voters", s.confState.Voters,
-			"commit", s.hs.Commit,
-		)
 	}
 
 	if !etcdraft.IsEmptyHardState(s.hs) {
@@ -199,10 +195,15 @@ func (s *Storage) replay() (uint64, error) {
 		}
 	}
 
-	if len(entries) > 0 {
-		if err := s.ms.Append(entries); err != nil {
-			return 0, fmt.Errorf("append entries: %w", err)
+	if etcdraft.IsEmptySnap(s.snap) && len(s.confState.Voters) > 0 && s.hs.Commit > 0 {
+		_, err := s.ms.CreateSnapshot(s.hs.Commit, &s.confState, nil)
+		if err != nil && !errors.Is(err, etcdraft.ErrSnapOutOfDate) {
+			return 0, fmt.Errorf("create confstate snapshot: %w", err)
 		}
+		slog.Debug("injected confState into MemoryStorage",
+			"commit", s.hs.Commit,
+			"voters", s.confState.Voters,
+		)
 	}
 
 	applied := s.snap.Metadata.Index
@@ -221,6 +222,17 @@ func (s *Storage) replay() (uint64, error) {
 	)
 
 	return applied, nil
+}
+
+func (s *Storage) MarkClusterInitialized() error {
+	path := filepath.Join(s.dir, clusterMarkerFile)
+	return os.WriteFile(path, []byte("1"), 0o640)
+}
+
+func (s *Storage) WasPreviouslyInitialized() bool {
+	path := filepath.Join(s.dir, clusterMarkerFile)
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (s *Storage) Close() error {

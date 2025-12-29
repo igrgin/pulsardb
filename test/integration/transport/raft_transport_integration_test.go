@@ -12,13 +12,15 @@ import (
 	"pulsardb/internal/command"
 	"pulsardb/internal/configuration/properties"
 	raftpkg "pulsardb/internal/raft"
-	"pulsardb/internal/storage"
+	"pulsardb/internal/store"
 	"pulsardb/internal/transport"
 	"pulsardb/internal/transport/gen/commandevents"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 func getFreePorts(t *testing.T, n int) []string {
@@ -123,7 +125,7 @@ func (ts *testServerBundle) Close() {
 func startTransportTestServer(t *testing.T, nodeID uint64) *testServerBundle {
 	t.Helper()
 
-	storageSvc := storage.NewStorageService()
+	storageSvc := store.NewStorageService()
 	raftProposer := newTransportTestRaftProposer(nodeID)
 	registry := &transportTestRegistry{}
 
@@ -136,12 +138,18 @@ func startTransportTestServer(t *testing.T, nodeID uint64) *testServerBundle {
 	ports := getFreePorts(t, 2)
 
 	cfg := &properties.TransportConfigProperties{
-		Network:              "tcp",
-		Address:              "127.0.0.1",
-		ClientPort:           ports[0],
-		RaftPort:             ports[1],
-		Timeout:              5000,
-		MaxConcurrentStreams: 100,
+		Network:    "tcp",
+		Address:    "127.0.0.1",
+		ClientPort: ports[0],
+		RaftPort:   ports[1],
+		ClientTransport: properties.ClientTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
+		RaftTransport: properties.RaftTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
 	}
 
 	ts := transport.NewTransportService(cfg, cmdSvc, nil)
@@ -166,29 +174,7 @@ func startTransportTestServer(t *testing.T, nodeID uint64) *testServerBundle {
 }
 
 func TestTransport_StartClientServer_AcceptsConnections(t *testing.T) {
-	ports := getFreePorts(t, 2)
-
-	cfg := &properties.TransportConfigProperties{
-		Network:              "tcp",
-		Address:              "127.0.0.1",
-		ClientPort:           ports[0],
-		RaftPort:             ports[1],
-		Timeout:              5000,
-		MaxConcurrentStreams: 100,
-	}
-
-	storageSvc := storage.NewStorageService()
-	raftProposer := newTransportTestRaftProposer(1)
-	registry := &transportTestRegistry{}
-	batcher := raftpkg.NewBatcher(raftProposer, registry, 100, 10*time.Millisecond)
-	cmdSvc := command.NewCommandService(storageSvc, raftProposer, batcher)
-	raftProposer.cmdSvc = cmdSvc
-	registry.svc = cmdSvc
-
-	ts := transport.NewTransportService(cfg, cmdSvc, nil)
-
-	lis, err := ts.StartClientServer()
-	require.NoError(t, err)
+	ts, lis, err := setupTransport(t)
 	require.NotNil(t, lis)
 	defer ts.ClientServer.GracefulStop()
 
@@ -200,6 +186,39 @@ func TestTransport_StartClientServer_AcceptsConnections(t *testing.T) {
 	conn.Close()
 }
 
+func setupTransport(t *testing.T) (*transport.Service, net.Listener, error) {
+	ports := getFreePorts(t, 2)
+
+	cfg := &properties.TransportConfigProperties{
+		Network:    "tcp",
+		Address:    "127.0.0.1",
+		ClientPort: ports[0],
+		RaftPort:   ports[1],
+		ClientTransport: properties.ClientTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
+		RaftTransport: properties.RaftTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
+	}
+
+	storageSvc := store.NewStorageService()
+	raftProposer := newTransportTestRaftProposer(1)
+	registry := &transportTestRegistry{}
+	batcher := raftpkg.NewBatcher(raftProposer, registry, 100, 10*time.Millisecond)
+	cmdSvc := command.NewCommandService(storageSvc, raftProposer, batcher)
+	raftProposer.cmdSvc = cmdSvc
+	registry.svc = cmdSvc
+
+	ts := transport.NewTransportService(cfg, cmdSvc, nil)
+
+	lis, err := ts.StartClientServer()
+	require.NoError(t, err)
+	return ts, lis, err
+}
+
 func TestTransport_StartServer_PortConflict_ReturnsError(t *testing.T) {
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -209,15 +228,21 @@ func TestTransport_StartServer_PortConflict_ReturnsError(t *testing.T) {
 	freePort := getFreePorts(t, 1)[0]
 
 	cfg := &properties.TransportConfigProperties{
-		Network:              "tcp",
-		Address:              "127.0.0.1",
-		ClientPort:           occupiedPort,
-		RaftPort:             freePort,
-		Timeout:              5000,
-		MaxConcurrentStreams: 100,
+		Network:    "tcp",
+		Address:    "127.0.0.1",
+		ClientPort: occupiedPort,
+		RaftPort:   freePort,
+		ClientTransport: properties.ClientTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
+		RaftTransport: properties.RaftTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
 	}
 
-	storageSvc := storage.NewStorageService()
+	storageSvc := store.NewStorageService()
 	raftProposer := newTransportTestRaftProposer(1)
 	registry := &transportTestRegistry{}
 	batcher := raftpkg.NewBatcher(raftProposer, registry, 100, 10*time.Millisecond)
@@ -235,15 +260,21 @@ func TestTransport_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 	ports := getFreePorts(t, 2)
 
 	cfg := &properties.TransportConfigProperties{
-		Network:              "tcp",
-		Address:              "127.0.0.1",
-		ClientPort:           ports[0],
-		RaftPort:             ports[1],
-		Timeout:              5000,
-		MaxConcurrentStreams: 100,
+		Network:    "tcp",
+		Address:    "127.0.0.1",
+		ClientPort: ports[0],
+		RaftPort:   ports[1],
+		ClientTransport: properties.ClientTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
+		RaftTransport: properties.RaftTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     1,
+		},
 	}
 
-	storageSvc := storage.NewStorageService()
+	storageSvc := store.NewStorageService()
 	raftProposer := newTransportTestRaftProposer(1)
 	registry := &transportTestRegistry{}
 	batcher := raftpkg.NewBatcher(raftProposer, registry, 100, 10*time.Millisecond)
@@ -288,7 +319,7 @@ func TestE2E_SET_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	requireSuccess(t, resp)
+	requireSuccess(t, resp, err)
 }
 
 func TestE2E_GET_ExistingKey_ReturnsValue(t *testing.T) {
@@ -315,7 +346,7 @@ func TestE2E_GET_ExistingKey_ReturnsValue(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	requireSuccess(t, resp)
+	requireSuccess(t, resp, err)
 	require.Equal(t, int64(42), resp.GetValue().GetIntValue())
 }
 
@@ -332,10 +363,8 @@ func TestE2E_GET_NonExistentKey_ReturnsFailure(t *testing.T) {
 		Key:     "nonexistent",
 	})
 
-	require.NoError(t, err)
-	requireFailure(t, resp)
-	require.Contains(t, resp.GetError().GetMessage(), "not found")
-	require.Equal(t, commandeventspb.ErrorCode_KEY_NOT_FOUND, resp.GetError().GetCode())
+	require.Error(t, err)
+	require.Nil(t, resp)
 }
 
 func TestE2E_ResponseMetadata_IsCorrect(t *testing.T) {
@@ -356,7 +385,7 @@ func TestE2E_ResponseMetadata_IsCorrect(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, uint64(12345), resp.GetEventId())
-	requireSuccess(t, resp)
+	requireSuccess(t, resp, err)
 }
 
 func TestE2E_DELETE_ExistingKey_Success(t *testing.T) {
@@ -366,7 +395,7 @@ func TestE2E_DELETE_ExistingKey_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+	setResp, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: 1,
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "to-delete",
@@ -375,6 +404,8 @@ func TestE2E_DELETE_ExistingKey_Success(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	require.NotNil(t, setResp)
+	require.True(t, setResp.GetSuccess())
 
 	delResp, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: 2,
@@ -385,13 +416,12 @@ func TestE2E_DELETE_ExistingKey_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, delResp.GetSuccess())
 
-	getResp, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+	_, err = srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: 3,
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "to-delete",
 	})
-	require.NoError(t, err)
-	require.NotNil(t, getResp.GetError())
+	require.Error(t, err)
 }
 
 func TestE2E_SET_MissingKey_ReturnsFailure(t *testing.T) {
@@ -401,7 +431,7 @@ func TestE2E_SET_MissingKey_ReturnsFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+	_, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: 1,
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "",
@@ -410,8 +440,8 @@ func TestE2E_SET_MissingKey_ReturnsFailure(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, resp.GetError())
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
 func TestE2E_SET_MissingValue_ReturnsFailure(t *testing.T) {
@@ -421,15 +451,15 @@ func TestE2E_SET_MissingValue_ReturnsFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+	_, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: 1,
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "key",
 		Value:   nil,
 	})
 
-	require.NoError(t, err)
-	require.False(t, resp.GetSuccess())
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
 func TestE2E_GET_WithValue_ReturnsFailure(t *testing.T) {
@@ -439,7 +469,7 @@ func TestE2E_GET_WithValue_ReturnsFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+	_, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: 1,
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "key",
@@ -448,8 +478,8 @@ func TestE2E_GET_WithValue_ReturnsFailure(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, resp.GetError())
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
 func TestE2E_MultipleValueTypes(t *testing.T) {
@@ -712,14 +742,13 @@ func TestE2E_ErrorResponse_DoesNotLeakInternalDetails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+	_, err := srv.client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: 1,
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "",
 		Value:   nil,
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, resp.GetError())
-	require.NotEmpty(t, resp.GetError().GetMessage())
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }

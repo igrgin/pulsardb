@@ -3,12 +3,10 @@ package raft
 import (
 	"context"
 	"log/slog"
+	"pulsardb/internal/configuration"
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
-	"runtime"
 	"sync"
 	"time"
-
-	"pulsardb/internal/configuration/properties"
 
 	etcdraft "go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
@@ -26,19 +24,22 @@ type Node struct {
 	confState   raftpb.ConfState
 	mu          sync.RWMutex
 	Timeout     uint64
-	sendQueues  []chan raftpb.Message
+	peerQueues  map[uint64]chan raftpb.Message
+	peerQueueMu sync.RWMutex
 	sendStopCh  chan struct{}
 	sendWg      sync.WaitGroup
 }
 
-func NewNode(rc *properties.RaftConfigProperties, localAddr string) (*Node, error) {
+func NewNode(rc *configuration.RaftConfigurationProperties, localAddr string) (*Node, error) {
+	slog.Info("creating raft node", "node_id", rc.NodeID, "addr", localAddr)
+
 	cfg, err := newNodeConfig(rc, localAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	n := &Node{
-		Id:          rc.NodeId,
+		Id:          rc.NodeID,
 		storage:     cfg.storage,
 		raftPeers:   rc.RaftPeers,
 		clientPeers: rc.ClientPeers,
@@ -49,14 +50,17 @@ func NewNode(rc *properties.RaftConfigProperties, localAddr string) (*Node, erro
 	}
 
 	if err := n.InitAllPeerClients(); err != nil {
+		slog.Error("failed to init peer clients", "error", err)
 		return nil, err
 	}
 
-	workers := min(runtime.GOMAXPROCS(0), 8)
-	queueSize := 1024
-	n.initSendPool(workers, queueSize)
+	n.initSendPool(rc.SendQueueSize)
 
-	slog.Info("raft Node created", "id", rc.NodeId)
+	slog.Info("raft node created",
+		"id", rc.NodeID,
+		"peers", len(rc.RaftPeers),
+		"timeout", rc.Timeout,
+	)
 	return n, nil
 }
 
@@ -81,50 +85,80 @@ func (n *Node) ConfState() raftpb.ConfState {
 func (n *Node) SetConfState(cs raftpb.ConfState) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	slog.Debug("updating confState", "node_id", n.Id, "voters", cs.Voters, "learners", cs.Learners)
 	n.confState = cs
 }
 
-func (n *Node) initSendPool(workers, queueSize int) {
-	if workers <= 0 {
-		workers = 1
-	}
-	if queueSize <= 0 {
-		queueSize = 1
-	}
+func (n *Node) initSendPool(queueSize int) {
 	n.sendStopCh = make(chan struct{})
-	n.sendQueues = make([]chan raftpb.Message, workers)
+	n.peerQueues = make(map[uint64]chan raftpb.Message)
 
-	for i := 0; i < workers; i++ {
-		ch := make(chan raftpb.Message, queueSize)
-		n.sendQueues[i] = ch
+	count := 0
+	for peerID := range n.raftPeers {
+		if peerID == n.Id {
+			continue
+		}
+		n.startPeerSender(peerID, queueSize)
+		count++
+	}
+	slog.Debug("send pool initialized", "node_id", n.Id, "peers", count, "queueSize", queueSize)
+}
 
-		n.sendWg.Add(1)
-		go func(in <-chan raftpb.Message) {
-			defer n.sendWg.Done()
-			for {
-				select {
-				case msg, ok := <-in:
-					if !ok {
-						return
-					}
-					n.sendMessage(msg)
-				case <-n.sendStopCh:
+func (n *Node) startPeerSender(peerID uint64, queueSize int) {
+	ch := make(chan raftpb.Message, queueSize)
+
+	n.peerQueueMu.Lock()
+	n.peerQueues[peerID] = ch
+	n.peerQueueMu.Unlock()
+
+	n.sendWg.Add(1)
+	go func() {
+		defer n.sendWg.Done()
+		for {
+			select {
+			case msg, ok := <-ch:
+				if !ok {
 					return
 				}
+				n.sendMessage(msg)
+			case <-n.sendStopCh:
+				return
 			}
-		}(ch)
-	}
+		}
+	}()
+	slog.Debug("peer sender started", "node_id", n.Id, "peer_id", peerID)
 }
 
 func (n *Node) stopSendPool() {
 	if n.sendStopCh == nil {
 		return
 	}
+	slog.Debug("stopping send pool", "node_id", n.Id)
 	close(n.sendStopCh)
-	for _, ch := range n.sendQueues {
+
+	n.peerQueueMu.Lock()
+	for _, ch := range n.peerQueues {
 		close(ch)
 	}
+	n.peerQueues = nil
+	n.peerQueueMu.Unlock()
+
 	n.sendWg.Wait()
+	slog.Debug("send pool stopped", "node_id", n.Id)
+}
+
+func (n *Node) stopPeerSender(peerID uint64) {
+	n.peerQueueMu.Lock()
+	ch, ok := n.peerQueues[peerID]
+	if ok {
+		delete(n.peerQueues, peerID)
+	}
+	n.peerQueueMu.Unlock()
+
+	if ok && ch != nil {
+		close(ch)
+		slog.Debug("peer sender stopped", "node_id", n.Id, "peer_id", peerID)
+	}
 }
 
 func (n *Node) Peers() map[uint64]string {
@@ -142,22 +176,27 @@ func (n *Node) GetTimeout() uint64 {
 }
 
 func (n *Node) Propose(ctx context.Context, data []byte) error {
+	slog.Debug("proposing data", "node_id", n.Id, "bytes", len(data))
 	return n.raftNode.Propose(ctx, data)
 }
 
 func (n *Node) ReadIndex(ctx context.Context, rctx []byte) error {
+	slog.Debug("requesting read index", "node_id", n.Id)
 	return n.raftNode.ReadIndex(ctx, rctx)
 }
 
 func (n *Node) ApplyConfChange(cc raftpb.ConfChange) *raftpb.ConfState {
+	slog.Debug("applying conf change", "node_id", n.Id, "type", cc.Type, "target", cc.NodeID)
 	return n.raftNode.ApplyConfChange(cc)
 }
 
 func (n *Node) ReportUnreachable(id uint64) {
+	slog.Debug("reporting peer unreachable", "node_id", n.Id, "peer_id", id)
 	n.raftNode.ReportUnreachable(id)
 }
 
 func (n *Node) ReportSnapshot(id uint64, status etcdraft.SnapshotStatus) {
+	slog.Debug("reporting snapshot status", "node_id", n.Id, "peer_id", id, "status", status)
 	n.raftNode.ReportSnapshot(id, status)
 }
 
@@ -169,7 +208,7 @@ func (n *Node) restoreFromConfState() {
 	)
 
 	if len(n.confState.Voters) == 0 {
-		slog.Debug("confState empty, using configured raftPeers",
+		slog.Warn("confState empty, probably new node",
 			"node_id", n.Id,
 			"raftPeers", n.raftPeers,
 		)
@@ -201,17 +240,18 @@ func (n *Node) restoreFromConfState() {
 					"addr", addr,
 					"error", err,
 				)
+			} else {
+				slog.Debug("restored peer client",
+					"node_id", n.Id,
+					"peer_id", voterID,
+				)
 			}
-
-			slog.Debug("restored peer client",
-				"node_id", n.Id,
-				"peer_id", voterID,
-			)
 		}
 	}
 }
 
 func (n *Node) InitAllPeerClients() error {
+	slog.Debug("initializing all peer clients", "node_id", n.Id, "peers", len(n.raftPeers))
 	for id, raftAddr := range n.raftPeers {
 		if id == n.Id {
 			continue
@@ -227,10 +267,13 @@ func (n *Node) InitAllPeerClients() error {
 func (n *Node) initPeerClient(id uint64, raftAddr string) error {
 	clientAddr := n.clientPeers[id]
 
+	slog.Debug("initializing peer client", "peer_id", id, "raftAddr", raftAddr, "clientAddr", clientAddr)
+
 	raftConn, err := grpc.NewClient(raftAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
+		slog.Warn("failed to create raft connection", "peer_id", id, "addr", raftAddr, "error", err)
 		return err
 	}
 
@@ -239,6 +282,7 @@ func (n *Node) initPeerClient(id uint64, raftAddr string) error {
 	)
 	if err != nil {
 		_ = raftConn.Close()
+		slog.Warn("failed to create client connection", "peer_id", id, "addr", clientAddr, "error", err)
 		return err
 	}
 
@@ -248,7 +292,7 @@ func (n *Node) initPeerClient(id uint64, raftAddr string) error {
 	n.clients[id] = client
 	n.mu.Unlock()
 
-	slog.Debug("initialized peer client", "peer_id", id, "raftAddr", raftAddr, "clientAddr", clientAddr)
+	slog.Debug("peer client initialized", "peer_id", id, "raftAddr", raftAddr, "clientAddr", clientAddr)
 	return nil
 }
 
@@ -256,30 +300,28 @@ func (n *Node) sendMessages(msgs []raftpb.Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	if len(n.sendQueues) == 0 {
-
-		for _, msg := range msgs {
-			if msg.To != 0 {
-				n.sendMessage(msg)
-			}
-		}
-		return
-	}
 
 	for _, msg := range msgs {
-		if msg.To == 0 {
+		if msg.To == 0 || msg.To == n.Id {
 			continue
 		}
-		idx := int(msg.To % uint64(len(n.sendQueues)))
-		q := n.sendQueues[idx]
+
+		n.peerQueueMu.RLock()
+		ch, ok := n.peerQueues[msg.To]
+		n.peerQueueMu.RUnlock()
+
+		if !ok {
+			slog.Warn("no send queue for peer", "node_id", n.Id, "to", msg.To, "type", msg.Type)
+			n.raftNode.ReportUnreachable(msg.To)
+			continue
+		}
 
 		select {
-		case q <- msg:
+		case ch <- msg:
+			slog.Debug("message queued", "to", msg.To, "type", msg.Type)
 		default:
-			slog.Debug("raft send queue full; dropping message",
-				"to", msg.To,
-				"type", msg.Type,
-			)
+			slog.Debug("queue full, dropping message", "to", msg.To, "type", msg.Type)
+			n.raftNode.ReportUnreachable(msg.To)
 		}
 	}
 }
@@ -291,6 +333,7 @@ func (n *Node) sendMessage(msg raftpb.Message) {
 
 	if !ok {
 		slog.Warn("no client for peer",
+			"node_id", n.Id,
 			"to", msg.To,
 			"type", msg.Type,
 		)
@@ -329,6 +372,7 @@ func (n *Node) GetLeaderClient(leaderID uint64) (Client, bool) {
 }
 
 func (n *Node) StopClients() {
+	slog.Debug("stopping all peer clients", "node_id", n.Id)
 	n.mu.Lock()
 	clients := n.clients
 	n.clients = make(map[uint64]Client)
@@ -342,11 +386,21 @@ func (n *Node) StopClients() {
 			slog.Warn("failed to close peer client", "peer_id", id, "error", err)
 		}
 	}
+	slog.Debug("all peer clients stopped", "node_id", n.Id)
 }
 
 func (n *Node) Stop() {
+	slog.Info("stopping raft node", "id", n.Id)
 	n.stopSendPool()
 	n.StopClients()
 	n.raftNode.Stop()
-	slog.Info("raft Node stopped", "id", n.Id)
+	slog.Info("raft node stopped", "id", n.Id)
+}
+
+func (n *Node) AddPeer(id uint64, raftAddr, clientAddr string) {
+	n.mu.Lock()
+	n.raftPeers[id] = raftAddr
+	n.clientPeers[id] = clientAddr
+	n.mu.Unlock()
+	slog.Info("peer added", "node_id", n.Id, "peer_id", id, "raftAddr", raftAddr, "clientAddr", clientAddr)
 }

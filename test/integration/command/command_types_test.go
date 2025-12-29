@@ -112,7 +112,7 @@ func TestCmdService_MultipleDataTypes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			setReq := &commandeventspb.CommandEventRequest{
-				EventId: uint64(time.Now().UnixNano()),
+				EventId: newEventID(),
 				Type:    commandeventspb.CommandEventType_SET,
 				Key:     tc.key,
 				Value:   tc.value,
@@ -122,7 +122,7 @@ func TestCmdService_MultipleDataTypes(t *testing.T) {
 			require.True(t, resp.Success)
 
 			getReq := &commandeventspb.CommandEventRequest{
-				EventId: uint64(time.Now().UnixNano()),
+				EventId: newEventID(),
 				Type:    commandeventspb.CommandEventType_GET,
 				Key:     tc.key,
 			}
@@ -151,7 +151,7 @@ func TestCmdService_LargeValue(t *testing.T) {
 	}
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: newEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "large-key",
 		Value: &commandeventspb.CommandEventValue{
@@ -184,7 +184,7 @@ func TestCmdService_TypeOverwrite(t *testing.T) {
 	key := "type-overwrite"
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: newEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     key,
 		Value: &commandeventspb.CommandEventValue{
@@ -196,7 +196,7 @@ func TestCmdService_TypeOverwrite(t *testing.T) {
 	require.True(t, resp.Success)
 
 	req = &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: newEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     key,
 		Value: &commandeventspb.CommandEventValue{
@@ -208,7 +208,7 @@ func TestCmdService_TypeOverwrite(t *testing.T) {
 	require.True(t, resp.Success)
 
 	getReq := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: newEventID(),
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     key,
 	}

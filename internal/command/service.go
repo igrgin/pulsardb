@@ -2,206 +2,176 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"pulsardb/internal/transport/util"
+	"pulsardb/convert"
 	"sync"
+	"time"
 
-	"pulsardb/internal/raft"
-	"pulsardb/internal/storage"
+	"pulsardb/internal/domain"
 	"pulsardb/internal/transport/gen/commandevents"
-	"pulsardb/internal/types"
-
-	"google.golang.org/protobuf/proto"
 )
 
-type RaftProposer interface {
-	Propose(ctx context.Context, data []byte) error
-	GetReadIndex(ctx context.Context) (uint64, error)
-	GetReadIndexFromLeader(ctx context.Context, leaderID uint64) (uint64, error)
-	WaitUntilApplied(ctx context.Context, index uint64) error
-	IsLeader() bool
-	LeaderID() uint64
-	NodeID() uint64
-	ForwardToLeader(ctx context.Context, req *commandeventspb.CommandEventRequest) (*commandeventspb.CommandEventResponse, error)
+type BatchConfig struct {
+	MaxSize int
+	MaxWait time.Duration // milliseconds
 }
 
 type Service struct {
-	storageService *storage.Service
-	raft           RaftProposer
-	pending        map[uint64]chan *commandeventspb.CommandEventResponse
-	pendingMu      sync.RWMutex
-	batcher        *raft.Batcher
+	store    domain.Store
+	proposer domain.Consensus
+	batcher  *Batcher
+	pending  map[uint64]chan *commandeventspb.CommandEventResponse
+	mu       sync.RWMutex
 }
 
-func NewCommandService(
-	storageSvc *storage.Service,
-	raft RaftProposer,
-	batcher *raft.Batcher,
-) *Service {
-
-	return &Service{
-		storageService: storageSvc,
-		pending:        make(map[uint64]chan *commandeventspb.CommandEventResponse),
-		raft:           raft,
-		batcher:        batcher,
+func NewService(store domain.Store, proposer domain.Consensus, batchCfg BatchConfig) *Service {
+	s := &Service{
+		store:    store,
+		proposer: proposer,
+		pending:  make(map[uint64]chan *commandeventspb.CommandEventResponse),
 	}
+	s.batcher = NewBatcher(proposer, s, batchCfg)
+	slog.Info("command service initialized")
+	return s
 }
 
-func (s *Service) Apply(data []byte) ([]byte, error) {
-	var batch commandeventspb.BatchedCommands
-	if err := proto.Unmarshal(data, &batch); err == nil && len(batch.Commands) > 0 {
-		for _, req := range batch.Commands {
-			resp := s.executeToStorage(req)
-			s.notifyPending(req.EventId, resp)
-		}
-		return nil, nil
-	}
-
-	var req commandeventspb.CommandEventRequest
-	if err := proto.Unmarshal(data, &req); err != nil {
-		return nil, fmt.Errorf("unmarshal command: %w", err)
-	}
-
-	resp := s.executeToStorage(&req)
-	s.notifyPending(req.EventId, resp)
-	return nil, nil
-}
-
-func (s *Service) executeToStorage(req *commandeventspb.CommandEventRequest) *commandeventspb.CommandEventResponse {
-
-	switch req.Type {
-	case commandeventspb.CommandEventType_SET:
-		val := types.ValueFromProto(req.Value)
-		s.storageService.Set(req.Key, val)
-		return transport.SuccessModifyResponse(req.EventId)
-
-	case commandeventspb.CommandEventType_DELETE:
-		s.storageService.Delete(req.Key)
-		return transport.SuccessModifyResponse(req.EventId)
-
-	case commandeventspb.CommandEventType_GET:
-		stored, ok := s.storageService.Get(req.Key)
-		if !ok {
-			return transport.ErrorResponse(req.EventId, commandeventspb.ErrorCode_KEY_NOT_FOUND,
-				fmt.Sprintf("key %q not found", req.Key))
-		}
-		return transport.SuccessReadResponse(req.EventId, types.ValueToProto(stored))
-
-	default:
-		return transport.ErrorResponse(req.EventId, commandeventspb.ErrorCode_INVALID_REQUEST,
-			fmt.Sprintf("unknown type: %s", req.Type))
-	}
+func (s *Service) Stop() {
+	slog.Info("command service stopping")
+	s.batcher.Stop()
+	slog.Info("command service stopped")
 }
 
 func (s *Service) ProcessCommand(
 	ctx context.Context,
 	req *commandeventspb.CommandEventRequest,
 ) (*commandeventspb.CommandEventResponse, error) {
-	if err := s.validateCommand(req); err != nil {
-		return transport.ErrorResponse(req.EventId, commandeventspb.ErrorCode_INVALID_REQUEST, err.Error()), err
+	slog.Debug("processing command", "eventId", req.EventId, "type", req.Type, "key", req.Key)
+
+	if err := s.validate(req); err != nil {
+		slog.Warn("command validation failed", "eventId", req.EventId, "error", err)
+		return nil, err
 	}
 
 	switch req.Type {
 	case commandeventspb.CommandEventType_GET:
-		resp, err := s.processRead(ctx, req)
-		return resp, err
-
+		return s.read(ctx, req)
 	case commandeventspb.CommandEventType_SET, commandeventspb.CommandEventType_DELETE:
-		resp, err := s.processModify(ctx, req)
-		return resp, err
-
+		return s.write(ctx, req)
 	default:
-		err := fmt.Errorf("unknown command type: %s", req.Type)
-		return transport.ErrorResponse(req.EventId, commandeventspb.ErrorCode_INVALID_REQUEST, err.Error()), err
+		slog.Warn("unknown command type", "eventId", req.EventId, "type", req.Type)
+		return nil, fmt.Errorf("%w: unknown type %s", ErrInvalidCommand, req.Type)
 	}
 }
 
-func (s *Service) processRead(ctx context.Context, req *commandeventspb.CommandEventRequest) (*commandeventspb.CommandEventResponse, error) {
-	readIndex, err := s.raft.GetReadIndex(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get read index: %w", err)
+func (s *Service) read(
+	ctx context.Context,
+	req *commandeventspb.CommandEventRequest,
+) (*commandeventspb.CommandEventResponse, error) {
+	slog.Debug("read operation", "eventId", req.EventId, "key", req.Key)
+
+	if _, err := s.proposer.ReadIndex(ctx); err != nil {
+		slog.Warn("read index failed", "eventId", req.EventId, "error", err)
+		return nil, err
 	}
 
-	if err := s.raft.WaitUntilApplied(ctx, readIndex); err != nil {
-		return nil, fmt.Errorf("wait for applied: %w", err)
-	}
-
-	return s.ExecuteRead(req.Key, req.EventId), nil
-}
-
-func (s *Service) ExecuteRead(key string, eventID uint64) *commandeventspb.CommandEventResponse {
-	stored, ok := s.storageService.Get(key)
+	val, ok := s.store.Get(req.Key)
 	if !ok {
-		slog.Error("Key not found", "key", key)
-		return transport.ErrorResponse(eventID, commandeventspb.ErrorCode_KEY_NOT_FOUND,
-			fmt.Sprintf("key `%s` not found", key))
+		slog.Debug("key not found", "eventId", req.EventId, "key", req.Key)
+		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, req.Key)
 	}
 
-	return transport.SuccessReadResponse(eventID, types.ValueToProto(stored))
+	slog.Debug("read success", "eventId", req.EventId, "key", req.Key)
+	return &commandeventspb.CommandEventResponse{
+		EventId: req.EventId,
+		Success: true,
+		Value:   convert.ToCommandProto(val),
+	}, nil
 }
 
-func (s *Service) processModify(ctx context.Context, req *commandeventspb.CommandEventRequest) (*commandeventspb.CommandEventResponse, error) {
-	respCh, err := s.batcher.Propose(ctx, req)
+func (s *Service) write(
+	ctx context.Context,
+	req *commandeventspb.CommandEventRequest,
+) (*commandeventspb.CommandEventResponse, error) {
+	slog.Debug("write operation", "eventId", req.EventId, "type", req.Type, "key", req.Key)
+
+	if s.proposer.LeaderID() == 0 {
+		slog.Warn("no leader available", "eventId", req.EventId)
+		return nil, ErrNoLeader
+	}
+
+	respCh, err := s.batcher.Submit(ctx, req)
 	if err != nil {
+		slog.Warn("submit to batcher failed", "eventId", req.EventId, "error", err)
 		return nil, err
 	}
 
 	select {
 	case resp := <-respCh:
+		if resp.Success {
+			slog.Debug("write success", "eventId", req.EventId)
+		} else {
+			slog.Debug("write failed", "eventId", req.EventId, "error", resp.Error)
+		}
 		return resp, nil
 	case <-ctx.Done():
+		slog.Warn("write timed out", "eventId", req.EventId, "error", ctx.Err())
 		return nil, ctx.Err()
 	}
 }
 
-func (s *Service) RegisterPending(eventID uint64, ch chan *commandeventspb.CommandEventResponse) {
-	s.pendingMu.Lock()
-	s.pending[eventID] = ch
-	s.pendingMu.Unlock()
-}
-
-func (s *Service) UnregisterPending(eventID uint64) {
-	s.pendingMu.Lock()
-	delete(s.pending, eventID)
-	s.pendingMu.Unlock()
-}
-
-func (s *Service) notifyPending(eventID uint64, resp *commandeventspb.CommandEventResponse) {
-	s.pendingMu.RLock()
-	ch, ok := s.pending[eventID]
-	s.pendingMu.RUnlock()
-
-	if ok {
-		select {
-		case ch <- resp:
-		default:
-		}
-	}
-}
-
-func (s *Service) NodeID() uint64 {
-	return s.raft.NodeID()
-}
-
-func (s *Service) validateCommand(req *commandeventspb.CommandEventRequest) error {
+func (s *Service) validate(req *commandeventspb.CommandEventRequest) error {
 	if req.Key == "" {
-		return errors.New("key is required")
+		return fmt.Errorf("%w: key is required", ErrInvalidCommand)
 	}
 
 	switch req.Type {
 	case commandeventspb.CommandEventType_GET, commandeventspb.CommandEventType_DELETE:
 		if req.Value != nil {
-			return fmt.Errorf("%s does not accept a value", req.Type)
+			return fmt.Errorf("%w: %s does not accept a value", ErrInvalidCommand, req.Type)
 		}
 	case commandeventspb.CommandEventType_SET:
 		if req.Value == nil {
-			return errors.New("SET requires a value")
+			return fmt.Errorf("%w: SET requires a value", ErrInvalidCommand)
 		}
 	default:
-		return fmt.Errorf("unknown command type: %s", req.Type)
+		return fmt.Errorf("%w: unknown type %s", ErrInvalidCommand, req.Type)
 	}
 
 	return nil
+}
+
+func (s *Service) HandleApplied(eventID uint64, resp *commandeventspb.CommandEventResponse) {
+	s.mu.RLock()
+	ch, ok := s.pending[eventID]
+	s.mu.RUnlock()
+
+	if ok {
+		slog.Debug("command applied", "eventId", eventID, "success", resp.Success)
+		select {
+		case ch <- resp:
+		default:
+			slog.Warn("failed to deliver response, channel full", "eventId", eventID)
+		}
+	} else {
+		slog.Debug("no pending handler for applied command", "eventId", eventID)
+	}
+}
+
+func (s *Service) Register(eventID uint64, ch chan *commandeventspb.CommandEventResponse) {
+	s.mu.Lock()
+	s.pending[eventID] = ch
+	s.mu.Unlock()
+	slog.Debug("registered pending command", "eventId", eventID)
+}
+
+func (s *Service) Unregister(eventID uint64) {
+	s.mu.Lock()
+	delete(s.pending, eventID)
+	s.mu.Unlock()
+	slog.Debug("unregistered pending command", "eventId", eventID)
+}
+
+func (s *Service) NodeID() uint64 {
+	return s.proposer.NodeID()
 }

@@ -11,7 +11,7 @@ import (
 
 	"pulsardb/internal/command"
 	"pulsardb/internal/raft"
-	"pulsardb/internal/storage"
+	"pulsardb/internal/store"
 	"pulsardb/internal/transport/gen/commandevents"
 
 	"github.com/stretchr/testify/require"
@@ -78,10 +78,10 @@ func (r *lazyRegistry) UnregisterPending(eventID uint64) {
 	r.svc.UnregisterPending(eventID)
 }
 
-func startCommandPipeline(t *testing.T, nodeID uint64) (*command.Service, *storage.Service, *fakeRaftProposer) {
+func startCommandPipeline(t *testing.T, nodeID uint64) (*command.Service, *store.Service, *fakeRaftProposer) {
 	t.Helper()
 
-	storageSvc := storage.NewStorageService()
+	storageSvc := store.NewStorageService()
 	fakeRaft := newFakeRaftProposer(nodeID)
 	registry := &lazyRegistry{}
 
@@ -94,30 +94,27 @@ func startCommandPipeline(t *testing.T, nodeID uint64) (*command.Service, *stora
 	return cmdSvc, storageSvc, fakeRaft
 }
 
-func processCmd(t *testing.T, cmdSvc *command.Service, req *commandeventspb.CommandEventRequest) *commandeventspb.CommandEventResponse {
+func processCmd(t *testing.T, cmdSvc *command.Service, req *commandeventspb.CommandEventRequest) (*commandeventspb.CommandEventResponse, error) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	resp, err := cmdSvc.ProcessCommand(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	return resp
+	return cmdSvc.ProcessCommand(ctx, req)
 }
 
-func requireSuccess(t *testing.T, resp *commandeventspb.CommandEventResponse) {
+func requireSuccess(t *testing.T, resp *commandeventspb.CommandEventResponse, err error) {
 	t.Helper()
+	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.True(t, resp.GetSuccess())
 	require.Empty(t, resp.GetError())
 }
 
-func requireFailure(t *testing.T, resp *commandeventspb.CommandEventResponse) {
+func requireFailure(t *testing.T, resp *commandeventspb.CommandEventResponse, err error) {
 	t.Helper()
-	require.NotNil(t, resp)
-	require.False(t, resp.GetSuccess())
-	require.NotEmpty(t, resp.GetError())
+	require.Error(t, err)
+	require.Nil(t, resp)
 }
 
 func TestCommand_ProcessCommand_InvalidRequests_SET_MissingKey(t *testing.T) {
@@ -127,7 +124,7 @@ func TestCommand_ProcessCommand_InvalidRequests_SET_MissingKey(t *testing.T) {
 	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(1, commandeventspb.CommandEventType_SET, "", types.ValueToProto(1)))
 
 	require.Error(t, err)
-	requireFailure(t, resp)
+	require.Nil(t, resp)
 }
 
 func TestCommand_ProcessCommand_InvalidRequests_SET_MissingValue(t *testing.T) {
@@ -137,7 +134,7 @@ func TestCommand_ProcessCommand_InvalidRequests_SET_MissingValue(t *testing.T) {
 	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(2, commandeventspb.CommandEventType_SET, "k", nil))
 
 	require.Error(t, err)
-	requireFailure(t, resp)
+	require.Nil(t, resp)
 }
 
 func TestCommand_ProcessCommand_InvalidRequests_GET_WithValue(t *testing.T) {
@@ -147,7 +144,7 @@ func TestCommand_ProcessCommand_InvalidRequests_GET_WithValue(t *testing.T) {
 	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(1, commandeventspb.CommandEventType_GET, "", types.ValueToProto(1)))
 
 	require.Error(t, err)
-	requireFailure(t, resp)
+	require.Nil(t, resp)
 }
 
 func TestCommand_ProcessCommand_InvalidRequests_GET_MissingKey(t *testing.T) {
@@ -157,7 +154,7 @@ func TestCommand_ProcessCommand_InvalidRequests_GET_MissingKey(t *testing.T) {
 	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildReadRequest(2, commandeventspb.CommandEventType_GET, ""))
 
 	require.Error(t, err)
-	requireFailure(t, resp)
+	require.Nil(t, resp)
 }
 
 func TestCommand_ProcessCommand_InvalidRequests_DELETE_WithValue(t *testing.T) {
@@ -167,7 +164,7 @@ func TestCommand_ProcessCommand_InvalidRequests_DELETE_WithValue(t *testing.T) {
 	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(1, commandeventspb.CommandEventType_DELETE, "", types.ValueToProto(1)))
 
 	require.Error(t, err)
-	requireFailure(t, resp)
+	require.Nil(t, resp)
 }
 
 func TestCommand_ProcessCommand_InvalidRequests_UnknownType(t *testing.T) {
@@ -177,14 +174,14 @@ func TestCommand_ProcessCommand_InvalidRequests_UnknownType(t *testing.T) {
 	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(3, commandeventspb.CommandEventType(999), "", types.ValueToProto(3)))
 
 	require.Error(t, err)
-	requireFailure(t, resp)
+	require.Nil(t, resp)
 }
 
 func TestCommand_SetThenGet_RoundTrip(t *testing.T) {
 	const nodeID = uint64(7)
 	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
 
-	setResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+	setResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 		EventId: 10,
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "mykey",
@@ -192,14 +189,14 @@ func TestCommand_SetThenGet_RoundTrip(t *testing.T) {
 			Value: &commandeventspb.CommandEventValue_IntValue{IntValue: 123},
 		},
 	})
-	requireSuccess(t, setResp)
+	requireSuccess(t, setResp, err)
 
-	getResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 		EventId: 11,
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "mykey",
 	})
-	requireSuccess(t, getResp)
+	requireSuccess(t, getResp, err)
 	require.NotNil(t, getResp.GetValue())
 	require.Equal(t, int64(123), getResp.GetValue().GetIntValue())
 }
@@ -208,7 +205,7 @@ func TestCommand_DeleteThenGet_ReturnsFailure(t *testing.T) {
 	const nodeID = uint64(2)
 	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
 
-	setResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+	setResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 		EventId: 20,
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "todelete",
@@ -216,36 +213,35 @@ func TestCommand_DeleteThenGet_ReturnsFailure(t *testing.T) {
 			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "v"},
 		},
 	})
-	requireSuccess(t, setResp)
+	requireSuccess(t, setResp, err)
 
-	delResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+	delResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 		EventId: 21,
 		Type:    commandeventspb.CommandEventType_DELETE,
 		Key:     "todelete",
 	})
-	requireSuccess(t, delResp)
+	requireSuccess(t, delResp, err)
 
-	getResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 		EventId: 22,
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "todelete",
 	})
-	requireFailure(t, getResp)
+	require.Nil(t, getResp, err)
 }
 
 func TestCommand_GET_NonExistentKey_ReturnsFailure(t *testing.T) {
 	const nodeID = uint64(3)
 	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
 
-	getResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 		EventId: 30,
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "nonexistent",
 	})
 
-	requireFailure(t, getResp)
-	require.NotNil(t, getResp.GetError())
-	require.Contains(t, getResp.GetError().GetMessage(), "not found")
+	require.Nil(t, getResp)
+	require.Error(t, err)
 }
 
 func TestCommand_OverwriteExistingKey(t *testing.T) {
@@ -270,12 +266,12 @@ func TestCommand_OverwriteExistingKey(t *testing.T) {
 		},
 	})
 
-	getResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 		EventId: 42,
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "overwrite",
 	})
-	requireSuccess(t, getResp)
+	requireSuccess(t, getResp, err)
 	require.Equal(t, "second", getResp.GetValue().GetStringValue())
 }
 
@@ -374,20 +370,20 @@ func TestCommand_MultipleTypes_StoredCorrectly(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			setResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+			setResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 				EventId: tc.eventID,
 				Type:    commandeventspb.CommandEventType_SET,
 				Key:     tc.key,
 				Value:   tc.setValue,
 			})
-			requireSuccess(t, setResp)
+			requireSuccess(t, setResp, err)
 
-			getResp := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
+			getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
 				EventId: tc.eventID + 1,
 				Type:    commandeventspb.CommandEventType_GET,
 				Key:     tc.key,
 			})
-			requireSuccess(t, getResp)
+			requireSuccess(t, getResp, err)
 			tc.validate(t, getResp.GetValue())
 		})
 	}

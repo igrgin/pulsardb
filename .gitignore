@@ -1,1 +1,5 @@
-/internal/raft/storage/
+/internal/kv-store/
+/internal/static/environment-variables/node-3/
+/internal/static/environment-variables/node-2/
+/internal/static/environment-variables/node-1/
+/internal/docker/

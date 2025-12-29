@@ -6,9 +6,12 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"pulsardb/internal/command"
 	"pulsardb/internal/configuration"
 	"pulsardb/internal/logging"
 	"pulsardb/internal/raft"
+	"pulsardb/internal/statemachine"
+	"pulsardb/internal/store"
 	"pulsardb/internal/transport"
 	"syscall"
 	"time"
@@ -16,58 +19,69 @@ import (
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(),
-		os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	config, raftConfig, transportConfig, err := configuration.LoadConfig()
+	cfg, err := configuration.Load(func(o *configuration.LoadOptions) {
+		o.BaseDir = "internal/static"
+	})
 	if err != nil {
-		slog.Error("Failed to initialize application context", "Error", err)
-		return
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
-	logging.Init(config.Application.LogLevel)
+	logging.Init(cfg.App.LogLevel)
 	slog.Info("Starting database...")
 
-	raftAddr := net.JoinHostPort(transportConfig.Address, transportConfig.RaftPort)
-	raftNode, err := raft.NewNode(raftConfig, raftAddr)
-	if err != nil {
-		slog.Error("Failed to create raft node", "error", err)
-		return
-	}
+	configProvider := configuration.NewProvider(cfg)
 
-	services, _ := NewServices(raftNode, raftConfig)
-
-	transportService := transport.NewTransportService(
-		transportConfig,
-		services.Command,
-		services.Raft,
+	slog.Info("loaded config",
+		"profile", cfg,
+		"node_id", cfg.Raft.NodeID,
+		"raft_addr", cfg.Transport.RaftAddr(),
 	)
 
-	_, err = transportService.StartRaftServer()
+	// 1. Storage (no dependencies)
+	storeService := store.NewService()
+
+	// 2. State machine (depends on store)
+	stateMachine := statemachine.New(storeService)
+
+	// 3. Raft node (depends on state machine)
+	raftNode, err := raft.NewNode(configProvider.GetRaft(), net.JoinHostPort(configProvider.GetTransport().Address, configProvider.GetTransport().RaftPort))
 	if err != nil {
-		slog.Error("Failed to start Raft transport server", "error", err)
-		raftNode.Stop()
-		return
+		slog.Error("failed to create raft node", "error", err)
+		os.Exit(1)
 	}
 
-	services.Raft.Start()
+	raftService := raft.NewService(raftNode, storeService, stateMachine, configProvider.GetRaft())
 
-	qctx, qcancel := context.WithTimeout(ctx, time.Duration(config.Application.QuorumWaitTime)*time.Second)
+	// 4. Command service (depends on raft as proposer, store as reader)
+	commandService := command.NewService(storeService, raftService, command.BatchConfig{
+		MaxSize: cfg.Raft.BatchSize,
+		MaxWait: cfg.Raft.BatchMaxWait,
+	})
+
+	stateMachine.OnApply(commandService.HandleApplied)
+
+	transportServer := transport.NewServer(configProvider.GetTransport(), commandService, raftService)
+
+	transportServer.StartRaft()
+	raftService.Start()
+
+	qctx, qcancel := context.WithTimeout(ctx, time.Duration(configProvider.GetApplication().QuorumWaitTime)*time.Second)
 	defer qcancel()
 
-	leaderID, readIndex, err := services.Raft.WaitForQuorum(qctx)
+	leaderID, readIndex, err := raftService.WaitForQuorum(qctx)
 	if err != nil {
 		slog.Error("Failed to achieve Raft quorum", "error", err)
-		raftNode.Stop()
+		shutdown(transportServer, raftService)
 		return
 	}
 
-	_, err = transportService.StartClientServer()
-	if err != nil {
-		slog.Error("Failed to start client transport server", "error", err)
-		raftNode.Stop()
-		return
-	}
+	go raftService.ReconcileConfiguredPeers()
+
+	transportServer.StartClient()
 
 	slog.Info("Database Ready",
 		"node_id", raftNode.Id,
@@ -77,13 +91,10 @@ func main() {
 
 	<-ctx.Done()
 
-	slog.Info("Shutting down database...")
-	shutdown(transportService, services.Raft)
-	slog.Info("Database shutdown complete")
+	shutdown(transportServer, raftService)
 }
 
-func shutdown(transportService *transport.Service, raftService *raft.Service) {
-	transportService.ClientServer.GracefulStop()
-	transportService.RaftServer.GracefulStop()
+func shutdown(transportServer *transport.Server, raftService *raft.Service) {
+	transportServer.Stop()
 	raftService.Stop()
 }

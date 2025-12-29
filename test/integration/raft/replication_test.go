@@ -72,7 +72,7 @@ func TestBasicDeleteOperation(t *testing.T) {
 		Key:     "delete-key",
 	}
 
-	respCh, err := leader.Batcher.Propose(ctx, req)
+	respCh, err := leader.Batcher.Submit(ctx, req)
 	if err != nil {
 		t.Fatalf("failed to propose delete: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestWriteWhenNoLeader(t *testing.T) {
 		},
 	}
 
-	_, err = node.Batcher.Propose(ctx, req)
+	_, err = node.Batcher.Submit(ctx, req)
 
 	time.Sleep(3 * time.Second)
 

@@ -1,4 +1,4 @@
-package storage
+package store
 
 import "sync"
 
@@ -11,18 +11,6 @@ func NewStore() *Store {
 	return &Store{
 		data: make(map[string]any),
 	}
-}
-
-func (s *Store) getData() map[string]any {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.data
-}
-
-func (s *Store) len() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.data)
 }
 
 func (s *Store) Set(key string, value any) {

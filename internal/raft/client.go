@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"log/slog"
 	"pulsardb/internal/transport/gen/commandevents"
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
 
@@ -24,6 +25,10 @@ type combinedClient struct {
 }
 
 func newCombinedClient(raftConn, cmdConn *grpc.ClientConn) *combinedClient {
+	slog.Debug("creating combined client",
+		"raftTarget", raftConn.Target(),
+		"cmdTarget", cmdConn.Target(),
+	)
 	return &combinedClient{
 		raftConn:   raftConn,
 		cmdConn:    cmdConn,
@@ -33,12 +38,22 @@ func newCombinedClient(raftConn, cmdConn *grpc.ClientConn) *combinedClient {
 }
 
 func (c *combinedClient) Close() error {
+	slog.Debug("closing combined client",
+		"raftTarget", c.raftConn.Target(),
+		"cmdTarget", c.cmdConn.Target(),
+	)
 	var err1, err2 error
 	if c.raftConn != nil {
 		err1 = c.raftConn.Close()
+		if err1 != nil {
+			slog.Warn("failed to close raft connection", "error", err1)
+		}
 	}
 	if c.cmdConn != nil {
 		err2 = c.cmdConn.Close()
+		if err2 != nil {
+			slog.Warn("failed to close command connection", "error", err2)
+		}
 	}
 	if err1 != nil {
 		return err1
@@ -59,9 +74,19 @@ func (c *combinedClient) ProcessCommandEvent(
 	in *commandeventspb.CommandEventRequest,
 	opts ...grpc.CallOption,
 ) (*commandeventspb.CommandEventResponse, error) {
-	return c.cmdClient.ProcessCommandEvent(ctx, in, opts...)
+	slog.Debug("forwarding command to leader", "event_id", in.EventId, "type", in.Type)
+	resp, err := c.cmdClient.ProcessCommandEvent(ctx, in, opts...)
+	if err != nil {
+		slog.Debug("forward command failed", "event_id", in.EventId, "error", err)
+	}
+	return resp, err
 }
 
 func (c *combinedClient) GetReadIndex(ctx *context.Context, req *rafttransportpb.GetReadIndexRequest, opts ...grpc.CallOption) (*rafttransportpb.GetReadIndexResponse, error) {
-	return c.raftClient.GetReadIndex(*ctx, req, opts...)
+	slog.Debug("requesting read index from leader", "from_node", req.FromNode)
+	resp, err := c.raftClient.GetReadIndex(*ctx, req, opts...)
+	if err != nil {
+		slog.Debug("get read index failed", "error", err)
+	}
+	return resp, err
 }

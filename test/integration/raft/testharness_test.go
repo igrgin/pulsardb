@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"pulsardb/internal/configuration/properties"
 	"pulsardb/internal/raft"
-	"pulsardb/internal/storage"
+	snapshotpb "pulsardb/internal/raft/gen"
+	"pulsardb/internal/store"
 	"pulsardb/internal/transport/gen/commandevents"
 	"pulsardb/internal/transport/gen/raft"
 	"pulsardb/internal/transport/util"
@@ -35,7 +36,7 @@ type TestNode struct {
 	ID             uint64
 	Node           *raft.Node
 	Service        *raft.Service
-	Storage        *storage.Service
+	Storage        *store.Service
 	StateMachine   *TestStateMachine
 	Batcher        *raft.Batcher
 	RaftServer     *grpc.Server
@@ -92,6 +93,36 @@ func (sm *TestStateMachine) Apply(data []byte) ([]byte, error) {
 	}
 
 	return nil, nil
+}
+
+func (sm *TestStateMachine) RestoreFromSnapshot(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	var snap snapshotpb.KVSnapshot
+	if err := proto.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("unmarshal snapshot: %w", err)
+	}
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	sm.data = make(map[string][]byte, len(snap.Entries))
+	for _, entry := range snap.Entries {
+
+		val := types.FromProtoValue(entry.Value)
+		switch v := val.(type) {
+		case string:
+			sm.data[entry.Key] = []byte(v)
+		case []byte:
+			sm.data[entry.Key] = v
+		default:
+			sm.data[entry.Key] = []byte(fmt.Sprintf("%v", v))
+		}
+	}
+
+	return nil
 }
 
 func (sm *TestStateMachine) applyCommand(req *commandeventspb.CommandEventRequest) ([]byte, error) {
@@ -168,6 +199,41 @@ func NewTestCluster(t *testing.T) *TestCluster {
 		baseDir:  baseDir,
 		nextPort: 20000 + (os.Getpid() % 10000),
 	}
+}
+
+// AddNewNode starts a new node that's not yet part of the cluster
+func (tc *TestCluster) AddNewNode(id uint64) (raftAddr, clientAddr string, err error) {
+	raftPort := tc.allocPort()
+	clientPort := tc.allocPort()
+	raftAddr = fmt.Sprintf("127.0.0.1:%d", raftPort)
+	clientAddr = fmt.Sprintf("127.0.0.1:%d", clientPort)
+
+	// Gather existing peers
+	raftPeers := make(map[uint64]string)
+	clientPeers := make(map[uint64]string)
+
+	tc.mu.RLock()
+	for nid, n := range tc.nodes {
+		raftPeers[nid] = n.RaftAddr
+		clientPeers[nid] = n.ClientAddr
+	}
+	tc.mu.RUnlock()
+
+	if err := tc.startNode(id, raftAddr, clientAddr, raftPeers, clientPeers); err != nil {
+		return "", "", fmt.Errorf("failed to start node %d: %w", id, err)
+	}
+
+	// Update existing nodes with new peer info
+	tc.mu.Lock()
+	for _, n := range tc.nodes {
+		if n.ID == id {
+			continue
+		}
+		n.Node.AddPeer(id, raftAddr, clientAddr)
+	}
+	tc.mu.Unlock()
+
+	return raftAddr, clientAddr, nil
 }
 
 func (tc *TestCluster) allocPort() int {
@@ -261,7 +327,7 @@ func (tc *TestCluster) startNode(
 		return fmt.Errorf("NewNode: %w", err)
 	}
 
-	storageSvc := storage.NewStorageService()
+	storageSvc := store.NewStorageService()
 	sm := NewTestStateMachine()
 	service := raft.NewService(node, storageSvc, rc, sm)
 	batcher := raft.NewBatcher(service, sm, rc.BatchSize, time.Duration(rc.BatchMaxWait)*time.Millisecond)
@@ -352,7 +418,7 @@ func (s *testCommandServer) ProcessCommandEvent(ctx context.Context, req *comman
 		return s.service.ForwardToLeader(ctx, req)
 	}
 
-	respCh, err := s.batcher.Propose(ctx, req)
+	respCh, err := s.batcher.Submit(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -534,7 +600,7 @@ func (tc *TestCluster) ProposeValue(ctx context.Context, key, value string) erro
 		},
 	}
 
-	respCh, err := leader.Batcher.Propose(ctx, req)
+	respCh, err := leader.Batcher.Submit(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -694,4 +760,84 @@ func (tc *TestCluster) NewClientConn(nodeID uint64) (*grpc.ClientConn, error) {
 	return grpc.NewClient(node.ClientAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
+}
+
+func (tc *TestCluster) DeleteNodeWAL(id uint64) error {
+	nodeDir := filepath.Join(tc.baseDir, fmt.Sprintf("node-%d", id))
+	walDir := filepath.Join(nodeDir, "wal")
+
+	if err := os.RemoveAll(walDir); err != nil {
+		return fmt.Errorf("failed to remove WAL dir: %w", err)
+	}
+
+	return nil
+}
+
+func (tc *TestCluster) DeleteNodeSnapshots(id uint64) error {
+	nodeDir := filepath.Join(tc.baseDir, fmt.Sprintf("node-%d", id))
+	snapDir := filepath.Join(nodeDir, "snapshot")
+
+	if err := os.RemoveAll(snapDir); err != nil {
+		return fmt.Errorf("failed to remove snapshot dir: %w", err)
+	}
+
+	return nil
+}
+
+func (tc *TestCluster) DeleteNodeData(id uint64) error {
+	if err := tc.DeleteNodeWAL(id); err != nil {
+		return err
+	}
+	return tc.DeleteNodeSnapshots(id)
+}
+
+func (tc *TestCluster) ClusterMarkerExists(id uint64) bool {
+	nodeDir := filepath.Join(tc.baseDir, fmt.Sprintf("node-%d", id))
+	markerPath := filepath.Join(nodeDir, "cluster.id")
+	_, err := os.Stat(markerPath)
+	return err == nil
+}
+
+func (tc *TestCluster) WaitForNodeCatchUp(nodeID uint64, targetIndex uint64, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			node := tc.GetNode(nodeID)
+			if node != nil {
+				return fmt.Errorf("timeout: node %d at index %d, target %d",
+					nodeID, node.Service.LastApplied(), targetIndex)
+			}
+			return fmt.Errorf("timeout waiting for node %d to catch up", nodeID)
+		case <-ticker.C:
+			node := tc.GetNode(nodeID)
+			if node == nil || node.stopped {
+				continue
+			}
+			if node.Service.LastApplied() >= targetIndex {
+				return nil
+			}
+		}
+	}
+}
+
+func (tc *TestCluster) GetClusterAppliedIndex() uint64 {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+
+	var maxApplied uint64
+	for _, node := range tc.nodes {
+		if node.stopped {
+			continue
+		}
+		if applied := node.Service.LastApplied(); applied > maxApplied {
+			maxApplied = applied
+		}
+	}
+	return maxApplied
 }

@@ -14,15 +14,17 @@ func (s *Service) startLoop() {
 		defer s.stoppedWg.Done()
 		s.runLoop()
 	}()
+	slog.Info("raft loop started", "node_id", s.Node.Id)
 }
 
 func (s *Service) runLoop() {
-	ticker := time.NewTicker(time.Duration(s.tickInterval) * time.Millisecond)
+	ticker := time.NewTicker(s.tickInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-s.stopCh:
+			slog.Debug("raft loop stopping", "node_id", s.Node.Id)
 			return
 
 		case <-ticker.C:
@@ -37,10 +39,11 @@ func (s *Service) runLoop() {
 
 		case rd, ok := <-s.Node.raftNode.Ready():
 			if !ok {
+				slog.Warn("raft ready channel closed", "node_id", s.Node.Id)
 				return
 			}
 			if err := s.processReady(rd); err != nil {
-				slog.Error("processReady failed", "error", err)
+				slog.Error("processReady failed", "node_id", s.Node.Id, "error", err)
 				return
 			}
 		}
@@ -48,6 +51,14 @@ func (s *Service) runLoop() {
 }
 
 func (s *Service) processReady(rd etcdraft.Ready) error {
+	slog.Debug("processing ready",
+		"node_id", s.Node.Id,
+		"entries", len(rd.Entries),
+		"committed", len(rd.CommittedEntries),
+		"messages", len(rd.Messages),
+		"hasSnapshot", !etcdraft.IsEmptySnap(rd.Snapshot),
+	)
+
 	if err := s.Node.storage.SaveReady(rd); err != nil {
 		return err
 	}
@@ -78,23 +89,29 @@ func (s *Service) applyLeaderSnapshotToApp(snap raftpb.Snapshot) error {
 		"node_id", s.Node.Id,
 		"index", snap.Metadata.Index,
 		"term", snap.Metadata.Term,
+		"data_size", len(snap.Data),
 	)
 
 	if len(snap.Data) > 0 {
-		if err := s.storeService.RestoreFromSnapshot(snap.Data); err != nil {
+		if err := s.StoreService.Restore(snap.Data); err != nil {
+			slog.Error("failed to restore from snapshot", "node_id", s.Node.Id, "error", err)
 			return err
 		}
+		slog.Info("application state restored from snapshot", "node_id", s.Node.Id)
+	} else {
+		slog.Warn("snapshot has no data, skipping application restore",
+			"node_id", s.Node.Id,
+			"index", snap.Metadata.Index,
+		)
 	}
 
 	s.Node.SetConfState(snap.Metadata.ConfState)
-
 	s.SetLastApplied(snap.Metadata.Index)
 
 	return nil
 }
 
 func (s *Service) maybeSnapshot() {
-
 	lastApplied := s.LastApplied()
 	snapIndex := s.Node.Storage().SnapshotIndex()
 
@@ -103,6 +120,11 @@ func (s *Service) maybeSnapshot() {
 	}
 
 	if (lastApplied - snapIndex) >= s.snapCount {
+		slog.Debug("snapshot threshold reached",
+			"lastApplied", lastApplied,
+			"snapIndex", snapIndex,
+			"snapCount", s.snapCount,
+		)
 		if err := s.TriggerSnapshot(s.snapCount); err != nil {
 			slog.Warn("failed to trigger snapshot", "error", err)
 		}
@@ -110,5 +132,8 @@ func (s *Service) maybeSnapshot() {
 }
 
 func (s *Service) sendMessages(msgs []raftpb.Message) {
+	if len(msgs) > 0 {
+		slog.Debug("sending raft messages", "count", len(msgs))
+	}
 	s.Node.sendMessages(msgs)
 }

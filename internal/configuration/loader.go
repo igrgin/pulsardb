@@ -2,67 +2,89 @@ package configuration
 
 import (
 	"fmt"
-	"log/slog"
-	"pulsardb/internal/configuration/properties"
-	"pulsardb/internal/configuration/util"
+	"os"
+	"path/filepath"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
 
-func LoadConfig() (*properties.Config, *properties.RaftConfigProperties, *properties.TransportConfigProperties, error) {
-	config, err := load()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to load config with error: %v", err)
-	}
-
-	cfgProvider := properties.NewProvider(config)
-	raftConfig := cfgProvider.GetRaft()
-	transportConfig := cfgProvider.GetTransport()
-	return config, raftConfig, transportConfig, nil
+type LoadOptions struct {
+	BaseDir    string
+	ProfileEnv string
 }
 
-func load() (*properties.Config, error) {
-
-	cfg, err := loadBaseConfig()
-	if err != nil {
-		return nil, err
+func DefaultOptions() LoadOptions {
+	return LoadOptions{
+		BaseDir:    "internal/static",
+		ProfileEnv: "APP_PROFILE",
 	}
-
-	err = loadProfileConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return cfg, err
 }
 
-func loadBaseConfig() (*properties.Config, error) {
-	baseConfig, err := util.LoadAndExpandYaml("internal/static", "application")
-	if err != nil {
-		slog.Error("Error parsing base config", "Error", err.Error())
-		return nil, err
+func Load(opts ...func(*LoadOptions)) (*Properties, error) {
+	o := DefaultOptions()
+	for _, fn := range opts {
+		fn(&o)
 	}
 
-	cfg := properties.Config{}
-	if err := yaml.Unmarshal([]byte(baseConfig), &cfg); err != nil {
-		slog.Error("Error parsing base config", "Error", err.Error())
-		return nil, err
+	cfg := &Properties{}
+
+	if err := loadFile(filepath.Join(o.BaseDir, "application.yml"), cfg); err != nil {
+		return nil, fmt.Errorf("load base config: %w", err)
 	}
 
-	return &cfg, nil
+	if envProfile := os.Getenv(o.ProfileEnv); envProfile != "" {
+		cfg.App.Profile = envProfile
+	}
+
+	if cfg.App.Profile != "" {
+		profilePath := filepath.Join(o.BaseDir, fmt.Sprintf("application-%s.yml", cfg.App.Profile))
+		if _, err := os.Stat(profilePath); err == nil {
+			if err := loadFile(profilePath, cfg); err != nil {
+				return nil, fmt.Errorf("load profile config: %w", err)
+			}
+		}
+	}
+
+	return cfg, nil
 }
 
-func loadProfileConfig(cfg *properties.Config) error {
-	profileConfig, err := util.LoadAndExpandYaml("internal/static", fmt.Sprintf("application-%s", cfg.Application.Profile))
+func loadFile(path string, cfg *Properties) error {
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		slog.Error("Error loading profile config", "Error", err.Error())
 		return err
 	}
 
-	if err := yaml.Unmarshal([]byte(profileConfig), &cfg); err != nil {
-		slog.Error("Error parsing profile config", "Error", err.Error())
+	expanded, err := expandEnv(string(raw))
+	if err != nil {
 		return err
 	}
 
-	return nil
+	return yaml.Unmarshal([]byte(expanded), cfg)
+}
+
+var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}`)
+
+func expandEnv(s string) (string, error) {
+	var missing []string
+
+	result := envPattern.ReplaceAllStringFunc(s, func(match string) string {
+		parts := envPattern.FindStringSubmatch(match)
+		name, defaultVal := parts[1], parts[2]
+
+		if val, ok := os.LookupEnv(name); ok {
+			return val
+		}
+		if defaultVal != "" {
+			return defaultVal
+		}
+		missing = append(missing, name)
+		return match
+	})
+
+	if len(missing) > 0 {
+		return "", fmt.Errorf("missing required env vars: %v", missing)
+	}
+
+	return result, nil
 }

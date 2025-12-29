@@ -82,9 +82,8 @@ func TestCmdService_ValidationErrors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := cluster.ProcessCommand(ctx, tc.req)
+			_, err := cluster.ProcessCommand(ctx, tc.req)
 			require.Error(t, err)
-			require.False(t, resp.Success)
 		})
 	}
 }
@@ -137,7 +136,6 @@ func TestCmdService_UnknownCommandType(t *testing.T) {
 		Key:     "key",
 	}
 
-	resp, err := cluster.ProcessCommand(ctx, req)
+	_, err = cluster.ProcessCommand(ctx, req)
 	require.Error(t, err)
-	require.False(t, resp.Success)
 }

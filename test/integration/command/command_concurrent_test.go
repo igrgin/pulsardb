@@ -122,7 +122,7 @@ func TestCmdService_BulkOperations(t *testing.T) {
 	wg.Wait()
 
 	t.Logf("successful: %d/%d", successCount.Load(), numKeys)
-	require.GreaterOrEqual(t, successCount.Load(), int32(numKeys*9/10))
+	require.GreaterOrEqual(t, int(successCount.Load()), numKeys)
 
 	require.NoError(t, cluster.WaitForConvergence(15*time.Second))
 }

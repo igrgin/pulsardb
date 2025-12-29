@@ -43,7 +43,7 @@ func TestBatchBySize(t *testing.T) {
 			},
 		}
 
-		respCh, err := leader.Batcher.Propose(ctx, req)
+		respCh, err := leader.Batcher.Submit(ctx, req)
 		if err != nil {
 			t.Fatalf("propose %d failed: %v", i, err)
 		}
@@ -95,7 +95,7 @@ func TestBatchByTime(t *testing.T) {
 	}
 
 	start := time.Now()
-	respCh, err := leader.Batcher.Propose(ctx, req)
+	respCh, err := leader.Batcher.Submit(ctx, req)
 	if err != nil {
 		t.Fatalf("propose failed: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestMixedBatchTriggers(t *testing.T) {
 						Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "value"},
 					},
 				}
-				respCh, err := leader.Batcher.Propose(ctx, req)
+				respCh, err := leader.Batcher.Submit(ctx, req)
 				if err != nil {
 					return
 				}
@@ -179,7 +179,7 @@ func TestMixedBatchTriggers(t *testing.T) {
 						Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "value"},
 					},
 				}
-				respCh, err := leader.Batcher.Propose(ctx, req)
+				respCh, err := leader.Batcher.Submit(ctx, req)
 				if err != nil {
 					return
 				}

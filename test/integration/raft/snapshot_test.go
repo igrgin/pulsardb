@@ -105,7 +105,7 @@ func TestSnapshotRestorationOnRestart(t *testing.T) {
 		val, exists := node.StateMachine.Get(key)
 		if !exists {
 
-			t.Logf("key %s not found in state machine (might be in storage)", key)
+			t.Logf("key %s not found in state machine (might be in store)", key)
 			continue
 		}
 		if string(val) != expectedValue {

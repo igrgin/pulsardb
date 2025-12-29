@@ -234,7 +234,7 @@ func (c *CommandTestCluster) SetValue(ctx context.Context, key, value string) er
 
 func (c *CommandTestCluster) GetValue(ctx context.Context, key string) (string, bool, error) {
 	req := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: newEventID(),
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     key,
 	}
@@ -242,15 +242,18 @@ func (c *CommandTestCluster) GetValue(ctx context.Context, key string) (string, 
 	if err != nil {
 		return "", false, err
 	}
-	if !resp.Success {
+	if resp.GetError() != nil && resp.GetError().GetCode() == commandeventspb.ErrorCode_KEY_NOT_FOUND {
 		return "", false, nil
+	}
+	if !resp.Success {
+		return "", false, fmt.Errorf("get failed: %s", resp.GetError().GetMessage())
 	}
 	return resp.GetValue().GetStringValue(), true, nil
 }
 
 func (c *CommandTestCluster) DeleteValue(ctx context.Context, key string) error {
 	req := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: newEventID(),
 		Type:    commandeventspb.CommandEventType_DELETE,
 		Key:     key,
 	}

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -36,7 +37,7 @@ func TestEmptyProposal(t *testing.T) {
 		},
 	}
 
-	respCh, err := leader.Batcher.Propose(ctx, req)
+	respCh, err := leader.Batcher.Submit(ctx, req)
 	if err != nil {
 		t.Logf("empty proposal rejected: %v", err)
 		return
@@ -77,7 +78,7 @@ func TestLargeValue(t *testing.T) {
 		},
 	}
 
-	respCh, err := leader.Batcher.Propose(ctx, req)
+	respCh, err := leader.Batcher.Submit(ctx, req)
 	if err != nil {
 		t.Fatalf("large proposal failed: %v", err)
 	}
@@ -252,9 +253,9 @@ func TestProposalAfterContextCancel(t *testing.T) {
 		},
 	}
 
-	_, err := leader.Batcher.Propose(ctx, req)
+	_, err := leader.Batcher.Submit(ctx, req)
 
-	if err == context.Canceled {
+	if errors.Is(err, context.Canceled) {
 		t.Log("proposal correctly rejected with cancelled context")
 	} else {
 		t.Logf("proposal result: %v", err)

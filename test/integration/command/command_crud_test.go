@@ -40,7 +40,7 @@ func TestCmdService_GetNonExistent(t *testing.T) {
 	defer cancel()
 
 	_, exists, err := cluster.GetValue(ctx, "nonexistent")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.False(t, exists)
 }
 
@@ -65,7 +65,7 @@ func TestCmdService_Delete(t *testing.T) {
 	require.NoError(t, cluster.DeleteValue(ctx, "to-delete"))
 
 	_, exists, err = cluster.GetValue(ctx, "to-delete")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.False(t, exists)
 }
 
@@ -150,6 +150,6 @@ func TestCmdService_RapidSetDelete(t *testing.T) {
 	require.NoError(t, cluster.WaitForConvergence(5*time.Second))
 
 	_, exists, err := cluster.GetValue(ctx, key)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.False(t, exists)
 }

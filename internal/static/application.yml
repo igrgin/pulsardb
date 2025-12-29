@@ -7,15 +7,23 @@ transport:
   network: tcp
   address: 127.0.0.1
   timeout: 60 # seconds
+  raft:
+    max-concurrent-streams: 1000
+    num-stream-workers: 80
+    timeout: 60
+  client:
+    max-concurrent-streams: 1000
+    num-stream-workers: 80
+    timeout: 60
 
 raft:
   batch-size: 100
-  batch-max-wait: 2
-  tick-interval: 100 # milliseconds
+  batch-max-wait: 2ms
+  tick-interval: 100ms
   snap-count: 100_000 # Snapshot every X entries
   timeout: 10 # seconds
-  max-concurrent-streams: 1000
   step-inbox-size: 4096
+  send-queue-size: 1024
   etcd:
     election-tick: 10
     heartbeat-tick: 1
