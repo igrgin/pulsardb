@@ -17,7 +17,7 @@ transport:
 raft:
   join: ${RAFT_JOIN_MODE:false}
   node-id: ${NODE_ID}
-  store-dir: ${STORAGE_BASE_DIR}
+  storage-dir: ${STORAGE_BASE_DIR}
   batch-size: ${RAFT_BATCH_SIZE:100}
   batch-max-wait: ${BATCH_MAX_WAIT:2}
   tick-interval: ${TICK_INTERVAL:1}

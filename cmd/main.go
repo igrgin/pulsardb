@@ -11,7 +11,7 @@ import (
 	"pulsardb/internal/logging"
 	"pulsardb/internal/raft"
 	"pulsardb/internal/statemachine"
-	"pulsardb/internal/store"
+	"pulsardb/internal/storage"
 	"pulsardb/internal/transport"
 	"syscall"
 	"time"
@@ -41,13 +41,10 @@ func main() {
 		"raft_addr", cfg.Transport.RaftAddr(),
 	)
 
-	// 1. Storage (no dependencies)
-	storeService := store.NewService()
+	storeService := storage.NewService()
 
-	// 2. State machine (depends on store)
 	stateMachine := statemachine.New(storeService)
 
-	// 3. Raft node (depends on state machine)
 	raftNode, err := raft.NewNode(configProvider.GetRaft(), net.JoinHostPort(configProvider.GetTransport().Address, configProvider.GetTransport().RaftPort))
 	if err != nil {
 		slog.Error("failed to create raft node", "error", err)
@@ -56,7 +53,6 @@ func main() {
 
 	raftService := raft.NewService(raftNode, storeService, stateMachine, configProvider.GetRaft())
 
-	// 4. Command service (depends on raft as proposer, store as reader)
 	commandService := command.NewService(storeService, raftService, command.BatchConfig{
 		MaxSize: cfg.Raft.BatchSize,
 		MaxWait: cfg.Raft.BatchMaxWait,

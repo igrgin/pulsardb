@@ -208,7 +208,7 @@ func (n *Node) restoreFromConfState() {
 	)
 
 	if len(n.confState.Voters) == 0 {
-		slog.Warn("confState empty, probably new node",
+		slog.Warn("confState empty, probably new node, will get conf from leader",
 			"node_id", n.Id,
 			"raftPeers", n.raftPeers,
 		)
@@ -394,6 +394,11 @@ func (n *Node) Stop() {
 	n.stopSendPool()
 	n.StopClients()
 	n.raftNode.Stop()
+
+	if err := n.storage.Close(); err != nil {
+		slog.Error("failed to close raft storage", "error", err)
+	}
+
 	slog.Info("raft node stopped", "id", n.Id)
 }
 

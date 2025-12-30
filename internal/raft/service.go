@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"pulsardb/internal/configuration"
 	"pulsardb/internal/domain"
-	"pulsardb/internal/store"
+	"pulsardb/internal/storage"
 	"pulsardb/internal/transport/gen/commandevents"
 	"pulsardb/internal/transport/gen/raft"
 	"pulsardb/internal/types"
@@ -49,7 +49,7 @@ type readIndexResp struct {
 
 type Service struct {
 	Node              *Node
-	StoreService      *store.Service
+	StoreService      *storage.Service
 	StateMachine      domain.StateMachine
 	nextReqID         uint64
 	readWaiters       map[string]*readWaiter
@@ -66,7 +66,7 @@ type Service struct {
 }
 
 func NewService(node *Node,
-	storageService *store.Service,
+	storageService *storage.Service,
 	sm domain.StateMachine,
 	cfg *configuration.RaftConfigurationProperties) *Service {
 	stepSize := 1024
@@ -151,13 +151,7 @@ func (s *Service) Stop() {
 	slog.Info("stopping raft service", "node_id", s.Node.Id)
 	close(s.stopCh)
 	s.stoppedWg.Wait()
-
-	s.Node.stopSendPool()
-	s.Node.StopClients()
-
-	if err := s.Node.storage.Close(); err != nil {
-		slog.Error("failed to close raft storage", "error", err)
-	}
+	s.Node.Stop()
 
 	slog.Info("raft service stopped", "node_id", s.Node.Id)
 }
@@ -945,7 +939,6 @@ func (s *Service) Step(ctx context.Context, msg raftpb.Message) error {
 	return s.CallRaftStep(ctx, msg)
 }
 
-// Propose implements command.Proposer
 func (s *Service) Propose(ctx context.Context, data []byte) error {
 	if s.Node.Status().Lead == 0 {
 		return ErrNotLeader
@@ -953,12 +946,16 @@ func (s *Service) Propose(ctx context.Context, data []byte) error {
 	return s.Node.Propose(ctx, data)
 }
 
-// ReadIndex implements command.Proposer
 func (s *Service) ReadIndex(ctx context.Context) (uint64, error) {
 	return s.doReadIndex(ctx)
 }
 
 func (s *Service) IsLeader() bool {
+	select {
+	case <-s.stopCh:
+		return false
+	default:
+	}
 	return s.Node.Status().RaftState == etcdraft.StateLeader
 }
 

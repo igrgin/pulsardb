@@ -52,7 +52,7 @@ type RaftConfigurationProperties struct {
 	NodeID        uint64                  `yaml:"node-id"`
 	RaftPeers     map[uint64]string       `yaml:"raft-peers"`
 	ClientPeers   map[uint64]string       `yaml:"client-peers"`
-	StorageDir    string                  `yaml:"store-dir"`
+	StorageDir    string                  `yaml:"storage-dir"`
 	TickInterval  time.Duration           `yaml:"tick-interval"`
 	Timeout       uint64                  `yaml:"timeout"`
 	SnapCount     uint64                  `yaml:"snap-count"`

@@ -1,8 +1,8 @@
-package store
+package storage
 
 import (
 	"fmt"
-	"pulsardb/internal/types"
+	"pulsardb/convert"
 
 	snapshotpb "pulsardb/internal/raft/gen"
 
@@ -10,37 +10,41 @@ import (
 )
 
 type Service struct {
-	kv *Store
+	store *Store
 }
 
 func NewService() *Service {
-	return &Service{
-		kv: NewStore(),
-	}
+	return &Service{store: NewStore()}
 }
 
 func (s *Service) Get(key string) (any, bool) {
-	return s.kv.Get(key)
+	return s.store.Get(key)
 }
 
 func (s *Service) Set(key string, value any) {
-	s.kv.Set(key, value)
+	s.store.Set(key, value)
 }
 
 func (s *Service) Delete(key string) {
-	s.kv.Delete(key)
+	s.store.Delete(key)
+}
+
+func (s *Service) Len() int {
+	return s.store.Len()
 }
 
 func (s *Service) Snapshot() ([]byte, error) {
-	s.kv.mu.RLock()
-	defer s.kv.mu.RUnlock()
+	s.store.mu.RLock()
+	defer s.store.mu.RUnlock()
+
+	data := s.store.Data()
 
 	snap := &snapshotpb.KVSnapshot{
-		Entries: make([]*snapshotpb.KeyValue, 0, len(s.kv.data)),
+		Entries: make([]*snapshotpb.KeyValue, 0, len(data)),
 	}
 
-	for k, v := range s.kv.data {
-		pbVal, err := types.ToProtoValue(v)
+	for k, v := range data {
+		pbVal, err := convert.ToSnapshotProto(v)
 		if err != nil {
 			return nil, fmt.Errorf("convert key %q: %w", k, err)
 		}
@@ -59,19 +63,14 @@ func (s *Service) Restore(data []byte) error {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
 
-	s.kv.mu.Lock()
-	defer s.kv.mu.Unlock()
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
 
-	s.kv.data = make(map[string]any, len(snap.Entries))
+	newData := make(map[string]any, len(snap.Entries))
 	for _, entry := range snap.Entries {
-		s.kv.data[entry.Key] = types.FromProtoValue(entry.Value)
+		newData[entry.Key] = convert.FromSnapshotProto(entry.Value)
 	}
 
+	s.store.Replace(newData)
 	return nil
-}
-
-func (s *Service) Len() int {
-	s.kv.mu.RLock()
-	defer s.kv.mu.RUnlock()
-	return len(s.kv.data)
 }

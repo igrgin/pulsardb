@@ -14,7 +14,7 @@ import (
 
 type BatchConfig struct {
 	MaxSize int
-	MaxWait time.Duration // milliseconds
+	MaxWait time.Duration
 }
 
 type Service struct {
@@ -50,7 +50,7 @@ func (s *Service) ProcessCommand(
 
 	if err := s.validate(req); err != nil {
 		slog.Warn("command validation failed", "eventId", req.EventId, "error", err)
-		return nil, err
+		return nil, fmt.Errorf("command validation failed with error: %w", err)
 	}
 
 	switch req.Type {

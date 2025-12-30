@@ -26,6 +26,10 @@ func New(storage domain.Store) *StateMachine {
 	}
 }
 
+func (sm *StateMachine) Get(key string) (any, bool) {
+	return sm.storage.Get(key)
+}
+
 func (sm *StateMachine) OnApply(cb ApplyCallback) {
 	sm.mu.Lock()
 	sm.callbacks = append(sm.callbacks, cb)

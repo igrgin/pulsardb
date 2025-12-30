@@ -38,13 +38,13 @@ func (h *CommandHandler) ProcessCommandEvent(
 			"event_id", req.GetEventId(),
 			"key", req.GetKey(),
 		)
-		return nil, toGRPCError(err)
+		return nil, ToGRPCError(err)
 	}
 
 	return resp, nil
 }
 
-func toGRPCError(err error) error {
+func ToGRPCError(err error) error {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, "request timed out")
