@@ -3,20 +3,18 @@ package integration
 import (
 	"context"
 	"fmt"
+	"pulsardb/test/integration/helper"
 	"sync"
 	"testing"
 	"time"
 )
 
 func TestReadAfterWriteSameNode(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
-	if _, err := tc.WaitForLeader(10 * time.Second); err != nil {
+	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
@@ -26,39 +24,40 @@ func TestReadAfterWriteSameNode(t *testing.T) {
 	key := "read-after-write-key"
 	value := "read-after-write-value"
 
-	if err := tc.ProposeValue(ctx, key, value); err != nil {
+	if err := c.Set(ctx, key, value); err != nil {
 		t.Fatalf("propose failed: %v", err)
 	}
 
-	leader := tc.GetLeader()
+	leader := c.GetLeader()
 
-	readIndex, err := leader.Service.GetReadIndex(ctx)
+	readIndex, err := leader.RaftService.GetReadIndex(ctx)
 	if err != nil {
 		t.Fatalf("GetReadIndex failed: %v", err)
 	}
 
-	if err := leader.Service.WaitUntilApplied(ctx, readIndex); err != nil {
+	if err := leader.RaftService.WaitUntilApplied(ctx, readIndex); err != nil {
 		t.Fatalf("WaitUntilApplied failed: %v", err)
 	}
 
-	val, exists := leader.StateMachine.Get(key)
+	val, exists := leader.StorageService.Get(key)
 	if !exists {
 		t.Fatalf("key not found after write")
 	}
-	if string(val) != value {
-		t.Errorf("expected %q, got %q", value, val)
+	strVal, ok := val.(string)
+	if !ok {
+		t.Fatalf("expected string value, got %T", val)
+	}
+	if strVal != value {
+		t.Errorf("expected %q, got %q", value, strVal)
 	}
 }
 
 func TestReadAfterWriteDifferentNode(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
-	if _, err := tc.WaitForLeader(10 * time.Second); err != nil {
+	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
@@ -68,60 +67,61 @@ func TestReadAfterWriteDifferentNode(t *testing.T) {
 	key := "cross-node-read-key"
 	value := "cross-node-read-value"
 
-	if err := tc.ProposeValue(ctx, key, value); err != nil {
+	if err := c.Set(ctx, key, value); err != nil {
 		t.Fatalf("propose failed: %v", err)
 	}
 
-	if err := tc.WaitForConvergence(5 * time.Second); err != nil {
+	if err := c.WaitForConvergence(5 * time.Second); err != nil {
 		t.Fatalf("convergence failed: %v", err)
 	}
 
-	followers := tc.GetFollowers()
+	followers := c.GetFollowers()
 	if len(followers) == 0 {
 		t.Fatal("no followers found")
 	}
 
 	follower := followers[0]
 
-	leaderID := follower.Service.LeaderID()
-	readIndex, err := follower.Service.GetReadIndexFromLeader(ctx, leaderID)
+	leaderID := follower.RaftService.LeaderID()
+	readIndex, err := follower.RaftService.GetReadIndexFromLeader(ctx, leaderID)
 	if err != nil {
 		t.Fatalf("GetReadIndexFromLeader failed: %v", err)
 	}
 
-	if err := follower.Service.WaitUntilApplied(ctx, readIndex); err != nil {
+	if err := follower.RaftService.WaitUntilApplied(ctx, readIndex); err != nil {
 		t.Fatalf("WaitUntilApplied on follower failed: %v", err)
 	}
 
-	val, exists := follower.StateMachine.Get(key)
+	val, exists := follower.StorageService.Get(key)
 	if !exists {
 		t.Fatalf("key not found on follower")
 	}
-	if string(val) != value {
-		t.Errorf("follower: expected %q, got %q", value, val)
+	strVal, ok := val.(string)
+	if !ok {
+		t.Fatalf("expected string value, got %T", val)
+	}
+	if strVal != value {
+		t.Errorf("follower: expected %q, got %q", value, strVal)
 	}
 }
 
 func TestReadIndexOnLeader(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
-	if _, err := tc.WaitForLeader(10 * time.Second); err != nil {
+	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	leader := tc.GetLeader()
+	leader := c.GetLeader()
 
 	var indices []uint64
 	for i := 0; i < 5; i++ {
-		idx, err := leader.Service.GetReadIndex(ctx)
+		idx, err := leader.RaftService.GetReadIndex(ctx)
 		if err != nil {
 			t.Fatalf("GetReadIndex %d failed: %v", i, err)
 		}
@@ -137,14 +137,11 @@ func TestReadIndexOnLeader(t *testing.T) {
 }
 
 func TestConcurrentReads(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
-	if _, err := tc.WaitForLeader(10 * time.Second); err != nil {
+	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
@@ -152,16 +149,16 @@ func TestConcurrentReads(t *testing.T) {
 	defer cancel()
 
 	for i := 0; i < 10; i++ {
-		if err := tc.ProposeValue(ctx, fmt.Sprintf("concurrent-read-key-%d", i), fmt.Sprintf("value-%d", i)); err != nil {
+		if err := c.Set(ctx, fmt.Sprintf("concurrent-read-key-%d", i), fmt.Sprintf("value-%d", i)); err != nil {
 			t.Fatalf("propose failed: %v", err)
 		}
 	}
 
-	if err := tc.WaitForConvergence(5 * time.Second); err != nil {
+	if err := c.WaitForConvergence(5 * time.Second); err != nil {
 		t.Fatalf("convergence failed: %v", err)
 	}
 
-	leader := tc.GetLeader()
+	leader := c.GetLeader()
 
 	const numReaders = 50
 	var wg sync.WaitGroup
@@ -172,13 +169,13 @@ func TestConcurrentReads(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			idx, err := leader.Service.GetReadIndex(ctx)
+			idx, err := leader.RaftService.GetReadIndex(ctx)
 			if err != nil {
 				errors <- fmt.Errorf("reader %d GetReadIndex: %w", i, err)
 				return
 			}
 
-			if err := leader.Service.WaitUntilApplied(ctx, idx); err != nil {
+			if err := leader.RaftService.WaitUntilApplied(ctx, idx); err != nil {
 				errors <- fmt.Errorf("reader %d WaitUntilApplied: %w", i, err)
 				return
 			}
@@ -200,28 +197,25 @@ func TestConcurrentReads(t *testing.T) {
 }
 
 func TestReadIndexTimeout(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
-	leaderID, err := tc.WaitForLeader(10 * time.Second)
+	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
-	followers := tc.GetFollowers()
+	followers := c.GetFollowers()
 	for _, f := range followers {
-		tc.StopNode(f.ID)
+		c.StopNode(f.ID)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	leader := tc.GetNode(leaderID)
-	_, err = leader.Service.GetReadIndex(ctx)
+	leader := c.GetNode(leaderID)
+	_, err = leader.RaftService.GetReadIndex(ctx)
 
 	if err == nil {
 		t.Log("ReadIndex succeeded without quorum - leader might have cached state")
@@ -231,20 +225,17 @@ func TestReadIndexTimeout(t *testing.T) {
 }
 
 func TestWaitForQuorum(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	for id := uint64(1); id <= 3; id++ {
-		node := tc.GetNode(id)
+		node := c.GetNode(id)
 
-		leaderID, readIndex, err := node.Service.WaitForQuorum(ctx)
+		leaderID, readIndex, err := node.RaftService.WaitForQuorum(ctx)
 		if err != nil {
 			t.Errorf("node %d WaitForQuorum failed: %v", id, err)
 			continue

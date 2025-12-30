@@ -2,21 +2,17 @@ package integration
 
 import (
 	"context"
+	commandeventspb "pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/test/integration/helper"
 	"testing"
 	"time"
-
-	"pulsardb/internal/transport/gen/commandevents"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestCmdService_MultipleDataTypes(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -112,21 +108,21 @@ func TestCmdService_MultipleDataTypes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			setReq := &commandeventspb.CommandEventRequest{
-				EventId: newEventID(),
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_SET,
 				Key:     tc.key,
 				Value:   tc.value,
 			}
-			resp, err := cluster.ProcessCommand(ctx, setReq)
+			resp, err := cluster.SendToLeader(ctx, setReq)
 			require.NoError(t, err)
 			require.True(t, resp.Success)
 
 			getReq := &commandeventspb.CommandEventRequest{
-				EventId: newEventID(),
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_GET,
 				Key:     tc.key,
 			}
-			resp, err = cluster.ProcessCommand(ctx, getReq)
+			resp, err = cluster.SendToLeader(ctx, getReq)
 			require.NoError(t, err)
 			require.True(t, resp.Success)
 			tc.check(t, resp)
@@ -135,12 +131,8 @@ func TestCmdService_MultipleDataTypes(t *testing.T) {
 }
 
 func TestCmdService_LargeValue(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -151,7 +143,7 @@ func TestCmdService_LargeValue(t *testing.T) {
 	}
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: newEventID(),
+		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "large-key",
 		Value: &commandeventspb.CommandEventValue{
@@ -159,7 +151,7 @@ func TestCmdService_LargeValue(t *testing.T) {
 		},
 	}
 
-	resp, err := cluster.ProcessCommand(ctx, req)
+	resp, err := cluster.SendToLeader(ctx, req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 
@@ -171,12 +163,8 @@ func TestCmdService_LargeValue(t *testing.T) {
 }
 
 func TestCmdService_TypeOverwrite(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -184,35 +172,35 @@ func TestCmdService_TypeOverwrite(t *testing.T) {
 	key := "type-overwrite"
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: newEventID(),
+		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     key,
 		Value: &commandeventspb.CommandEventValue{
 			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "hello"},
 		},
 	}
-	resp, err := cluster.ProcessCommand(ctx, req)
+	resp, err := cluster.SendToLeader(ctx, req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 
 	req = &commandeventspb.CommandEventRequest{
-		EventId: newEventID(),
+		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     key,
 		Value: &commandeventspb.CommandEventValue{
 			Value: &commandeventspb.CommandEventValue_IntValue{IntValue: 42},
 		},
 	}
-	resp, err = cluster.ProcessCommand(ctx, req)
+	resp, err = cluster.SendToLeader(ctx, req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 
 	getReq := &commandeventspb.CommandEventRequest{
-		EventId: newEventID(),
+		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     key,
 	}
-	resp, err = cluster.ProcessCommand(ctx, getReq)
+	resp, err = cluster.SendToLeader(ctx, getReq)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 	require.Equal(t, int64(42), resp.GetValue().GetIntValue())

@@ -2,20 +2,20 @@ package integration
 
 import (
 	"context"
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/command"
+	"pulsardb/test/integration/helper"
+	"strings"
 	"testing"
 	"time"
+
+	commandeventspb "pulsardb/internal/transport/gen/commandevents"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestCmdService_SpecialKeys(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -35,9 +35,9 @@ func TestCmdService_SpecialKeys(t *testing.T) {
 
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
-			require.NoError(t, cluster.SetValue(ctx, key, "value"))
+			require.NoError(t, cluster.Set(ctx, key, "value"))
 
-			val, exists, err := cluster.GetValue(ctx, key)
+			val, exists, err := cluster.Get(ctx, key)
 			require.NoError(t, err)
 			require.True(t, exists)
 			require.Equal(t, "value", val)
@@ -46,17 +46,13 @@ func TestCmdService_SpecialKeys(t *testing.T) {
 }
 
 func TestCmdService_CrossNodeConsistency(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	require.NoError(t, cluster.SetValue(ctx, "consistent-key", "consistent-value"))
+	require.NoError(t, cluster.Set(ctx, "consistent-key", "consistent-value"))
 	require.NoError(t, cluster.WaitForConvergence(5*time.Second))
 
 	consistent, err := cluster.VerifyConsistency("consistent-key")
@@ -65,17 +61,13 @@ func TestCmdService_CrossNodeConsistency(t *testing.T) {
 }
 
 func TestCmdService_ReadFromFollower(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	require.NoError(t, cluster.SetValue(ctx, "follower-read", "test-value"))
+	require.NoError(t, cluster.Set(ctx, "follower-read", "test-value"))
 	require.NoError(t, cluster.WaitForConvergence(5*time.Second))
 
 	followers := cluster.GetFollowers()
@@ -84,7 +76,7 @@ func TestCmdService_ReadFromFollower(t *testing.T) {
 	follower := followers[0]
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: newEventID(),
+		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_GET,
 		Key:     "follower-read",
 	}
@@ -96,36 +88,25 @@ func TestCmdService_ReadFromFollower(t *testing.T) {
 }
 
 func TestCmdService_LongKey(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	longKey := ""
-	for i := 0; i < 1000; i++ {
-		longKey += "a"
-	}
+	longKey := strings.Repeat("a", 1000)
 
-	require.NoError(t, cluster.SetValue(ctx, longKey, "value"))
+	require.NoError(t, cluster.Set(ctx, longKey, "value"))
 
-	val, exists, err := cluster.GetValue(ctx, longKey)
+	val, exists, err := cluster.Get(ctx, longKey)
 	require.NoError(t, err)
 	require.True(t, exists)
 	require.Equal(t, "value", val)
 }
 
 func TestCmdService_ZeroEventID(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -139,77 +120,65 @@ func TestCmdService_ZeroEventID(t *testing.T) {
 		},
 	}
 
-	resp, err := cluster.ProcessCommand(ctx, req)
+	resp, err := cluster.SendToLeader(ctx, req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 }
 
 func TestCmdService_SameKeyMultipleNodes(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	key := "shared-key"
 
-	require.NoError(t, cluster.SetValue(ctx, key, "leader-write"))
+	require.NoError(t, cluster.Set(ctx, key, "leader-write"))
 	require.NoError(t, cluster.WaitForConvergence(5*time.Second))
 
-	cluster.mu.RLock()
-	for _, node := range cluster.nodes {
-		if node.stopped {
-			continue
-		}
+	for id := uint64(1); id <= 3; id++ {
+		node := cluster.GetNode(id)
+		require.NotNil(t, node, "node %d should exist", id)
+
 		val, exists := node.StorageService.Get(key)
-		require.True(t, exists, "key should exist on node %d", node.ID)
-		require.Equal(t, "leader-write", val, "value mismatch on node %d", node.ID)
+		require.True(t, exists, "key should exist on node %d", id)
+		require.Equal(t, "leader-write", val, "value mismatch on node %d", id)
 	}
-	cluster.mu.RUnlock()
 }
 
 func TestCmdService_DeleteThenRecreate(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	key := "recreate-key"
 
-	require.NoError(t, cluster.SetValue(ctx, key, "first"))
-	val, exists, err := cluster.GetValue(ctx, key)
+	require.NoError(t, cluster.Set(ctx, key, "first"))
+	val, exists, err := cluster.Get(ctx, key)
 	require.NoError(t, err)
 	require.True(t, exists)
 	require.Equal(t, "first", val)
 
-	require.NoError(t, cluster.DeleteValue(ctx, key))
-	_, exists, err = cluster.GetValue(ctx, key)
+	err = cluster.Delete(ctx, key)
+	require.NoError(t, err)
+	_, exists, err = cluster.Get(ctx, key)
 	require.Error(t, err)
+	require.ErrorIs(t, err, command.ErrKeyNotFound)
 	require.False(t, exists)
 
-	require.NoError(t, cluster.SetValue(ctx, key, "second"))
-	val, exists, err = cluster.GetValue(ctx, key)
+	require.NoError(t, cluster.Set(ctx, key, "second"))
+	val, exists, err = cluster.Get(ctx, key)
 	require.NoError(t, err)
 	require.True(t, exists)
 	require.Equal(t, "second", val)
 }
 
 func TestCmdService_SpecialStringValues(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -234,8 +203,8 @@ func TestCmdService_SpecialStringValues(t *testing.T) {
 	for i, value := range values {
 		key := string(rune('a' + i))
 		t.Run(key, func(t *testing.T) {
-			require.NoError(t, cluster.SetValue(ctx, key, value))
-			val, exists, err := cluster.GetValue(ctx, key)
+			require.NoError(t, cluster.Set(ctx, key, value))
+			val, exists, err := cluster.Get(ctx, key)
 			require.NoError(t, err)
 			require.True(t, exists)
 			require.Equal(t, value, val)

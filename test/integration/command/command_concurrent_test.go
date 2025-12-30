@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"pulsardb/test/integration/helper"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,10 +13,10 @@ import (
 )
 
 func TestCmdService_ConcurrentWritesDifferentKeys(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
+	cluster := helper.NewCluster(t, nil, "warn")
 
-	require.NoError(t, cluster.StartNodes(3))
+	cluster.StartNodes(3, 60)
+
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
 
@@ -32,7 +33,7 @@ func TestCmdService_ConcurrentWritesDifferentKeys(t *testing.T) {
 			defer wg.Done()
 			key := fmt.Sprintf("concurrent-%d", i)
 			value := fmt.Sprintf("value-%d", i)
-			if err := cluster.SetValue(ctx, key, value); err != nil {
+			if err := cluster.Set(ctx, key, value); err != nil {
 				errors <- fmt.Errorf("write %d: %w", i, err)
 			}
 		}(i)
@@ -59,10 +60,10 @@ func TestCmdService_ConcurrentWritesDifferentKeys(t *testing.T) {
 }
 
 func TestCmdService_ConcurrentWritesSameKey(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
+	cluster := helper.NewCluster(t, nil, "warn")
 
-	require.NoError(t, cluster.StartNodes(3))
+	cluster.StartNodes(3, 60)
+
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
 
@@ -77,7 +78,7 @@ func TestCmdService_ConcurrentWritesSameKey(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if err := cluster.SetValue(ctx, "contended", fmt.Sprintf("value-%d", i)); err == nil {
+			if err := cluster.Set(ctx, "contended", fmt.Sprintf("value-%d", i)); err == nil {
 				successCount.Add(1)
 			}
 		}(i)
@@ -95,10 +96,10 @@ func TestCmdService_ConcurrentWritesSameKey(t *testing.T) {
 }
 
 func TestCmdService_BulkOperations(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
+	cluster := helper.NewCluster(t, nil, "warn")
 
-	require.NoError(t, cluster.StartNodes(3))
+	cluster.StartNodes(3, 60)
+
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
 
@@ -113,7 +114,7 @@ func TestCmdService_BulkOperations(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if err := cluster.SetValue(ctx, fmt.Sprintf("bulk-%d", i), fmt.Sprintf("val-%d", i)); err == nil {
+			if err := cluster.Set(ctx, fmt.Sprintf("bulk-%d", i), fmt.Sprintf("val-%d", i)); err == nil {
 				successCount.Add(1)
 			}
 		}(i)
@@ -128,10 +129,10 @@ func TestCmdService_BulkOperations(t *testing.T) {
 }
 
 func TestCmdService_ConcurrentReadsAndWrites(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
+	cluster := helper.NewCluster(t, nil, "warn")
 
-	require.NoError(t, cluster.StartNodes(3))
+	cluster.StartNodes(3, 60)
+
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
 
@@ -139,7 +140,7 @@ func TestCmdService_ConcurrentReadsAndWrites(t *testing.T) {
 	defer cancel()
 
 	for i := 0; i < 10; i++ {
-		require.NoError(t, cluster.SetValue(ctx, fmt.Sprintf("rw-key-%d", i), fmt.Sprintf("initial-%d", i)))
+		require.NoError(t, cluster.Set(ctx, fmt.Sprintf("rw-key-%d", i), fmt.Sprintf("initial-%d", i)))
 	}
 
 	var wg sync.WaitGroup
@@ -150,7 +151,7 @@ func TestCmdService_ConcurrentReadsAndWrites(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := fmt.Sprintf("rw-key-%d", i%10)
-			if _, exists, err := cluster.GetValue(ctx, key); err == nil && exists {
+			if _, exists, err := cluster.Get(ctx, key); err == nil && exists {
 				readSuccess.Add(1)
 			}
 		}(i)
@@ -161,7 +162,7 @@ func TestCmdService_ConcurrentReadsAndWrites(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := fmt.Sprintf("rw-key-%d", i%10)
-			if err := cluster.SetValue(ctx, key, fmt.Sprintf("updated-%d", i)); err == nil {
+			if err := cluster.Set(ctx, key, fmt.Sprintf("updated-%d", i)); err == nil {
 				writeSuccess.Add(1)
 			}
 		}(i)

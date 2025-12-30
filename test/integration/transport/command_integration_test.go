@@ -2,319 +2,222 @@ package integration
 
 import (
 	"context"
-	"errors"
-	transport "pulsardb/internal/transport/util"
-	"pulsardb/internal/types"
-	"sync/atomic"
+	"fmt"
+	"pulsardb/test/integration/helper"
+	"sync"
 	"testing"
 	"time"
 
-	"pulsardb/internal/command"
-	"pulsardb/internal/raft"
-	"pulsardb/internal/store"
-	"pulsardb/internal/transport/gen/commandevents"
+	commandeventspb "pulsardb/internal/transport/gen/commandevents"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-type fakeRaftProposer struct {
-	nodeID       uint64
-	appliedIndex atomic.Uint64
-	cmdSvc       *command.Service
+// =============================================================================
+// Invalid Request Tests (Direct Command Service)
+// =============================================================================
+
+func TestCommand_SET_MissingKey(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp, err := c.SetValue(ctx, "", &commandeventspb.CommandEventValue{
+		Value: &commandeventspb.CommandEventValue_IntValue{IntValue: 1},
+	})
+
+	require.Error(t, err)
+	require.Nil(t, resp)
 }
 
-func newFakeRaftProposer(nodeID uint64) *fakeRaftProposer {
-	f := &fakeRaftProposer{nodeID: nodeID}
-	f.appliedIndex.Store(100)
-	return f
-}
+func TestCommand_SET_MissingValue(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
 
-func (f *fakeRaftProposer) Propose(ctx context.Context, data []byte) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	_, err := f.cmdSvc.Apply(data)
-	return err
-}
-
-func (f *fakeRaftProposer) GetReadIndex(ctx context.Context) (uint64, error) {
-	if ctx.Err() != nil {
-		return 0, ctx.Err()
-	}
-	return f.appliedIndex.Load(), nil
-}
-
-func (f *fakeRaftProposer) GetReadIndexFromLeader(ctx context.Context, leaderID uint64) (uint64, error) {
-	return f.appliedIndex.Load(), nil
-}
-
-func (f *fakeRaftProposer) WaitUntilApplied(ctx context.Context, index uint64) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return nil
-}
-
-func (f *fakeRaftProposer) IsLeader() bool   { return true }
-func (f *fakeRaftProposer) LeaderID() uint64 { return f.nodeID }
-func (f *fakeRaftProposer) NodeID() uint64   { return f.nodeID }
-
-func (f *fakeRaftProposer) ForwardToLeader(
-	ctx context.Context,
-	req *commandeventspb.CommandEventRequest,
-) (*commandeventspb.CommandEventResponse, error) {
-	return nil, errors.New("not implemented")
-}
-
-type lazyRegistry struct {
-	svc *command.Service
-}
-
-func (r *lazyRegistry) RegisterPending(eventID uint64, ch chan *commandeventspb.CommandEventResponse) {
-	r.svc.RegisterPending(eventID, ch)
-}
-
-func (r *lazyRegistry) UnregisterPending(eventID uint64) {
-	r.svc.UnregisterPending(eventID)
-}
-
-func startCommandPipeline(t *testing.T, nodeID uint64) (*command.Service, *store.Service, *fakeRaftProposer) {
-	t.Helper()
-
-	storageSvc := store.NewStorageService()
-	fakeRaft := newFakeRaftProposer(nodeID)
-	registry := &lazyRegistry{}
-
-	batcher := raft.NewBatcher(fakeRaft, registry, 100, 10*time.Millisecond)
-	cmdSvc := command.NewCommandService(storageSvc, fakeRaft, batcher)
-
-	fakeRaft.cmdSvc = cmdSvc
-	registry.svc = cmdSvc
-
-	return cmdSvc, storageSvc, fakeRaft
-}
-
-func processCmd(t *testing.T, cmdSvc *command.Service, req *commandeventspb.CommandEventRequest) (*commandeventspb.CommandEventResponse, error) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	return cmdSvc.ProcessCommand(ctx, req)
+	resp, err := c.SetValue(ctx, "", nil)
+
+	require.Error(t, err)
+	require.Nil(t, resp)
 }
 
-func requireSuccess(t *testing.T, resp *commandeventspb.CommandEventResponse, err error) {
-	t.Helper()
+func TestCommand_GET_MissingKey(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := c.GetValue(ctx, "")
+	require.Error(t, err)
+	require.Nil(t, resp)
+}
+
+func TestCommand_GET_WithValue(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, exists, err := c.Get(ctx, "key")
+	require.False(t, exists)
+	require.Error(t, err)
+	require.Equal(t, "", resp)
+}
+
+func TestCommand_DELETE_WithValue(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := c.Delete(ctx, "key")
 	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.True(t, resp.GetSuccess())
-	require.Empty(t, resp.GetError())
 }
 
-func requireFailure(t *testing.T, resp *commandeventspb.CommandEventResponse, err error) {
-	t.Helper()
-	require.Error(t, err)
-	require.Nil(t, resp)
-}
+func TestCommand_UnknownType(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
 
-func TestCommand_ProcessCommand_InvalidRequests_SET_MissingKey(t *testing.T) {
-	const nodeID = uint64(1)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(1, commandeventspb.CommandEventType_SET, "", types.ValueToProto(1)))
-
-	require.Error(t, err)
-	require.Nil(t, resp)
-}
-
-func TestCommand_ProcessCommand_InvalidRequests_SET_MissingValue(t *testing.T) {
-	const nodeID = uint64(1)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
-
-	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(2, commandeventspb.CommandEventType_SET, "k", nil))
+	resp, err := c.SendToLeader(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType(999),
+		Key:     "key",
+	})
 
 	require.Error(t, err)
 	require.Nil(t, resp)
 }
 
-func TestCommand_ProcessCommand_InvalidRequests_GET_WithValue(t *testing.T) {
-	const nodeID = uint64(1)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
-
-	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(1, commandeventspb.CommandEventType_GET, "", types.ValueToProto(1)))
-
-	require.Error(t, err)
-	require.Nil(t, resp)
-}
-
-func TestCommand_ProcessCommand_InvalidRequests_GET_MissingKey(t *testing.T) {
-	const nodeID = uint64(1)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
-
-	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildReadRequest(2, commandeventspb.CommandEventType_GET, ""))
-
-	require.Error(t, err)
-	require.Nil(t, resp)
-}
-
-func TestCommand_ProcessCommand_InvalidRequests_DELETE_WithValue(t *testing.T) {
-	const nodeID = uint64(1)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
-
-	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(1, commandeventspb.CommandEventType_DELETE, "", types.ValueToProto(1)))
-
-	require.Error(t, err)
-	require.Nil(t, resp)
-}
-
-func TestCommand_ProcessCommand_InvalidRequests_UnknownType(t *testing.T) {
-	const nodeID = uint64(1)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
-
-	resp, err := cmdSvc.ProcessCommand(context.Background(), transport.BuildModifyRequest(3, commandeventspb.CommandEventType(999), "", types.ValueToProto(3)))
-
-	require.Error(t, err)
-	require.Nil(t, resp)
-}
+// =============================================================================
+// Basic Operations (Direct Command Service)
+// =============================================================================
 
 func TestCommand_SetThenGet_RoundTrip(t *testing.T) {
-	const nodeID = uint64(7)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	setResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 10,
-		Type:    commandeventspb.CommandEventType_SET,
-		Key:     "mykey",
-		Value: &commandeventspb.CommandEventValue{
-			Value: &commandeventspb.CommandEventValue_IntValue{IntValue: 123},
-		},
-	})
-	requireSuccess(t, setResp, err)
+	err := c.Set(ctx, "mykey", "123")
+	require.NoError(t, err)
 
-	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 11,
-		Type:    commandeventspb.CommandEventType_GET,
-		Key:     "mykey",
-	})
-	requireSuccess(t, getResp, err)
-	require.NotNil(t, getResp.GetValue())
-	require.Equal(t, int64(123), getResp.GetValue().GetIntValue())
+	getResp, exists, err := c.Get(ctx, "mykey")
+	require.True(t, exists)
+	require.NoError(t, err)
+	require.NotNil(t, getResp)
+
+	require.Equal(t, "123", getResp)
 }
 
-func TestCommand_DeleteThenGet_ReturnsFailure(t *testing.T) {
-	const nodeID = uint64(2)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
+func TestCommand_DeleteThenGet_ReturnsError(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
 
-	setResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 20,
-		Type:    commandeventspb.CommandEventType_SET,
-		Key:     "todelete",
-		Value: &commandeventspb.CommandEventValue{
-			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "v"},
-		},
-	})
-	requireSuccess(t, setResp, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	delResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 21,
-		Type:    commandeventspb.CommandEventType_DELETE,
-		Key:     "todelete",
-	})
-	requireSuccess(t, delResp, err)
+	err := c.Set(ctx, "todelete", "v")
+	require.NoError(t, err)
 
-	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 22,
-		Type:    commandeventspb.CommandEventType_GET,
-		Key:     "todelete",
-	})
-	require.Nil(t, getResp, err)
-}
+	err = c.Delete(ctx, "todelete")
+	require.NoError(t, err)
 
-func TestCommand_GET_NonExistentKey_ReturnsFailure(t *testing.T) {
-	const nodeID = uint64(3)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
-
-	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 30,
-		Type:    commandeventspb.CommandEventType_GET,
-		Key:     "nonexistent",
-	})
-
-	require.Nil(t, getResp)
+	getResp, exists, err := c.Get(ctx, "todelete")
+	require.False(t, exists)
 	require.Error(t, err)
+	require.Equal(t, "", getResp)
+}
+
+func TestCommand_GET_NonExistentKey(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, exists, err := c.Get(ctx, "nonexistent")
+	require.False(t, exists)
+	require.Error(t, err)
+	require.Equal(t, "", resp)
 }
 
 func TestCommand_OverwriteExistingKey(t *testing.T) {
-	const nodeID = uint64(4)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
 
-	processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 40,
-		Type:    commandeventspb.CommandEventType_SET,
-		Key:     "overwrite",
-		Value: &commandeventspb.CommandEventValue{
-			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "first"},
-		},
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 41,
-		Type:    commandeventspb.CommandEventType_SET,
-		Key:     "overwrite",
-		Value: &commandeventspb.CommandEventValue{
-			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "second"},
-		},
-	})
+	valueToOverwrite := "first"
+	c.Set(ctx, "overwrite", valueToOverwrite)
 
-	getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-		EventId: 42,
-		Type:    commandeventspb.CommandEventType_GET,
-		Key:     "overwrite",
-	})
-	requireSuccess(t, getResp, err)
-	require.Equal(t, "second", getResp.GetValue().GetStringValue())
+	expectedValue := "second"
+	c.Set(ctx, "overwrite", expectedValue)
+
+	getResp, exists, err := c.Get(ctx, "overwrite")
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, expectedValue, getResp)
 }
 
-func TestCommand_ProcessCommand_ContextCanceled_PropagatesError(t *testing.T) {
-	const nodeID = uint64(9)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
+// =============================================================================
+// Context Handling
+// =============================================================================
+
+func TestCommand_ContextCanceled(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := cmdSvc.ProcessCommand(ctx, transport.BuildReadRequest(100, commandeventspb.CommandEventType_GET, "k"))
-
+	_, _, err := c.Get(ctx, "key")
 	require.Error(t, err)
 }
 
-func TestCommand_ProcessCommand_ContextDeadlineExceeded(t *testing.T) {
-	const nodeID = uint64(10)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
+func TestCommand_ContextDeadlineExceeded(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
 	time.Sleep(1 * time.Millisecond)
 
-	_, err := cmdSvc.ProcessCommand(ctx, transport.BuildReadRequest(101, commandeventspb.CommandEventType_GET, "k"))
-
+	_, _, err := c.Get(ctx, "key")
 	require.Error(t, err)
 }
 
-func TestCommand_MultipleTypes_StoredCorrectly(t *testing.T) {
-	const nodeID = uint64(3)
-	cmdSvc, _, _ := startCommandPipeline(t, nodeID)
+// =============================================================================
+// Multiple Value Types
+// =============================================================================
+
+func TestCommand_MultipleValueTypes(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	_, err := c.WaitForLeader(10 * time.Second)
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name     string
 		key      string
-		eventID  uint64
 		setValue *commandeventspb.CommandEventValue
 		validate func(t *testing.T, v *commandeventspb.CommandEventValue)
 	}{
 		{
-			name:    "string",
-			key:     "str-key",
-			eventID: 201,
+			name: "string",
+			key:  "str-key",
 			setValue: &commandeventspb.CommandEventValue{
 				Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "abc"},
 			},
@@ -323,9 +226,8 @@ func TestCommand_MultipleTypes_StoredCorrectly(t *testing.T) {
 			},
 		},
 		{
-			name:    "int",
-			key:     "int-key",
-			eventID: 203,
+			name: "int",
+			key:  "int-key",
 			setValue: &commandeventspb.CommandEventValue{
 				Value: &commandeventspb.CommandEventValue_IntValue{IntValue: 12345},
 			},
@@ -334,9 +236,8 @@ func TestCommand_MultipleTypes_StoredCorrectly(t *testing.T) {
 			},
 		},
 		{
-			name:    "double",
-			key:     "double-key",
-			eventID: 205,
+			name: "double",
+			key:  "double-key",
 			setValue: &commandeventspb.CommandEventValue{
 				Value: &commandeventspb.CommandEventValue_DoubleValue{DoubleValue: 3.14159},
 			},
@@ -345,9 +246,8 @@ func TestCommand_MultipleTypes_StoredCorrectly(t *testing.T) {
 			},
 		},
 		{
-			name:    "bool",
-			key:     "bool-key",
-			eventID: 207,
+			name: "bool",
+			key:  "bool-key",
 			setValue: &commandeventspb.CommandEventValue{
 				Value: &commandeventspb.CommandEventValue_BoolValue{BoolValue: true},
 			},
@@ -356,9 +256,8 @@ func TestCommand_MultipleTypes_StoredCorrectly(t *testing.T) {
 			},
 		},
 		{
-			name:    "bytes",
-			key:     "bytes-key",
-			eventID: 209,
+			name: "bytes",
+			key:  "bytes-key",
 			setValue: &commandeventspb.CommandEventValue{
 				Value: &commandeventspb.CommandEventValue_BytesValue{BytesValue: []byte{0xDE, 0xAD, 0xBE, 0xEF}},
 			},
@@ -370,21 +269,499 @@ func TestCommand_MultipleTypes_StoredCorrectly(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			setResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-				EventId: tc.eventID,
-				Type:    commandeventspb.CommandEventType_SET,
-				Key:     tc.key,
-				Value:   tc.setValue,
-			})
-			requireSuccess(t, setResp, err)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-			getResp, err := processCmd(t, cmdSvc, &commandeventspb.CommandEventRequest{
-				EventId: tc.eventID + 1,
-				Type:    commandeventspb.CommandEventType_GET,
-				Key:     tc.key,
-			})
-			requireSuccess(t, getResp, err)
+			setResp, err := c.SetValue(ctx, tc.key, tc.setValue)
+			helper.RequireSuccess(t, setResp, err)
+
+			getResp, err := c.GetValue(ctx, tc.key)
+			helper.RequireSuccess(t, getResp, err)
 			tc.validate(t, getResp.GetValue())
 		})
 	}
+}
+
+// =============================================================================
+// gRPC Transport Tests
+// =============================================================================
+
+func TestTransport_SET_Success(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "test-key",
+		Value: &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "test-value"},
+		},
+	})
+
+	helper.RequireSuccess(t, resp, err)
+}
+
+func TestTransport_SET_MissingKey_ReturnsInvalidArgument(t *testing.T) {
+	c := helper.NewCluster(t, nil, "debug")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "",
+		Value: &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "val"},
+		},
+	})
+
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestTransport_SET_MissingValue_ReturnsInvalidArgument(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "key",
+		Value:   nil,
+	})
+
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestTransport_GET_ExistingKey(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Set via client
+	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "existing-key",
+		Value: &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_IntValue{IntValue: 42},
+		},
+	})
+	require.NoError(t, err)
+
+	// Get via client
+	resp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "existing-key",
+	})
+
+	helper.RequireSuccess(t, resp, err)
+	require.Equal(t, int64(42), resp.GetValue().GetIntValue())
+}
+
+func TestTransport_GET_NonExistentKey(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "nonexistent",
+	})
+
+	require.Error(t, err)
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestTransport_GET_WithValue_ReturnsInvalidArgument(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "key",
+		Value: &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_IntValue{IntValue: 1},
+		},
+	})
+
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestTransport_DELETE_ExistingKey(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Set
+	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "to-delete",
+		Value: &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "val"},
+		},
+	})
+	require.NoError(t, err)
+
+	// Delete
+	delResp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_DELETE,
+		Key:     "to-delete",
+	})
+	helper.RequireSuccess(t, delResp, err)
+
+	// Verify deleted
+	_, err = client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "to-delete",
+	})
+	require.Error(t, err)
+}
+
+func TestTransport_ResponseMetadata(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	eventID := helper.NewEventID()
+	resp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: eventID,
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "metadata-test",
+		Value: &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "val"},
+		},
+	})
+
+	helper.RequireSuccess(t, resp, err)
+	require.Equal(t, eventID, resp.GetEventId())
+}
+
+func TestTransport_LargeValue(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	largeBytes := make([]byte, 1024*1024)
+	for i := range largeBytes {
+		largeBytes[i] = byte(i % 256)
+	}
+
+	setResp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "large-key",
+		Value: &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_BytesValue{BytesValue: largeBytes},
+		},
+	})
+	helper.RequireSuccess(t, setResp, err)
+
+	getResp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "large-key",
+	})
+	helper.RequireSuccess(t, getResp, err)
+	require.Equal(t, largeBytes, getResp.GetValue().GetBytesValue())
+}
+
+func TestTransport_ConcurrentClients(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	const numClients = 10
+	const opsPerClient = 5
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, numClients*opsPerClient*2)
+
+	for i := 0; i < numClients; i++ {
+		wg.Add(1)
+		go func(clientID int) {
+			defer wg.Done()
+
+			for j := 0; j < opsPerClient; j++ {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				key := fmt.Sprintf("client-%d-key-%d", clientID, j)
+				val := int64(clientID*1000 + j)
+
+				setResp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+					EventId: helper.NewEventID(),
+					Type:    commandeventspb.CommandEventType_SET,
+					Key:     key,
+					Value: &commandeventspb.CommandEventValue{
+						Value: &commandeventspb.CommandEventValue_IntValue{IntValue: val},
+					},
+				})
+				if err != nil {
+					errCh <- fmt.Errorf("SET error: %w", err)
+					cancel()
+					continue
+				}
+				if !setResp.GetSuccess() {
+					errCh <- fmt.Errorf("SET failed: %s", setResp.GetError().GetMessage())
+					cancel()
+					continue
+				}
+
+				getResp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+					EventId: helper.NewEventID(),
+					Type:    commandeventspb.CommandEventType_GET,
+					Key:     key,
+				})
+				if err != nil {
+					errCh <- fmt.Errorf("GET error: %w", err)
+					cancel()
+					continue
+				}
+				if getResp.GetValue().GetIntValue() != val {
+					errCh <- fmt.Errorf("value mismatch: got %d, want %d",
+						getResp.GetValue().GetIntValue(), val)
+				}
+				cancel()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	require.Empty(t, errs)
+}
+
+// =============================================================================
+// Cluster Tests (Multi-Node)
+// =============================================================================
+
+func TestCluster_LeaderElection(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(3, 60)
+
+	leaderID, err := c.WaitForLeader(10 * time.Second)
+	require.NoError(t, err)
+	require.NotZero(t, leaderID)
+}
+
+func TestCluster_DataConsistency(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(3, 60)
+
+	_, err := c.WaitForLeader(10 * time.Second)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = c.Set(ctx, "consistent-key", "consistent-value")
+	require.NoError(t, err)
+
+	err = c.WaitForConvergence(10 * time.Second)
+	require.NoError(t, err)
+
+	consistent, err := c.VerifyConsistency("consistent-key")
+	require.NoError(t, err)
+	require.True(t, consistent)
+}
+
+func TestCluster_LeaderFailover(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(3, 60)
+
+	leaderID, err := c.WaitForLeader(10 * time.Second)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = c.Set(ctx, "before-failover", "value1")
+	require.NoError(t, err)
+
+	err = c.StopNode(leaderID)
+	require.NoError(t, err)
+
+	newLeaderID, err := c.WaitForNewLeader(leaderID, 10*time.Second)
+	require.NoError(t, err)
+	require.NotEqual(t, leaderID, newLeaderID)
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+
+	val, exists, err := c.Get(ctx2, "before-failover")
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, "value1", val)
+}
+
+func TestCluster_NodeRestart(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(3, 60)
+
+	_, err := c.WaitForLeader(10 * time.Second)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = c.Set(ctx, "persistent-key", "persistent-value")
+	require.NoError(t, err)
+
+	err = c.WaitForConvergence(10 * time.Second)
+	require.NoError(t, err)
+
+	// Restart a follower
+	leader := c.GetLeader()
+	var followerID uint64
+	for id := uint64(1); id <= 3; id++ {
+		if id != leader.ID {
+			followerID = id
+			break
+		}
+	}
+
+	err = c.RestartNode(followerID)
+	require.NoError(t, err)
+
+	err = c.WaitForConvergence(10 * time.Second)
+	require.NoError(t, err)
+
+	consistent, err := c.VerifyConsistency("persistent-key")
+	require.NoError(t, err)
+	require.True(t, consistent)
+}
+
+// --- Transport Lifecycle Tests (move from transport_test.go) ---
+
+func TestCommand_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	_, err := c.WaitForLeader(10 * time.Second)
+	require.NoError(t, err)
+
+	leader := c.GetLeader()
+	require.NotNil(t, leader)
+
+	done := make(chan struct{})
+	go func() {
+		leader.ClientServer.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("graceful shutdown timed out")
+	}
+}
+
+func TestCommand_RequestAfterShutdown_Fails(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	leader := c.GetLeader()
+	require.NotNil(t, leader)
+
+	// Stop the node
+	err := c.StopNode(leader.ID)
+	require.NoError(t, err)
+	cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	_, err = client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "any-key",
+	})
+	require.Error(t, err)
+}
+
+// --- Error Handling Test ---
+func TestCommand_ErrorResponse_DoesNotLeakInternalDetails(t *testing.T) {
+	c := helper.NewCluster(t, nil, "error")
+	c.StartNodes(1, 30)
+
+	client, cleanup := c.GetClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Test that validation errors return InvalidArgument, not internal details
+	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_SET,
+		Key:     "",
+		Value:   nil,
+	})
+
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }

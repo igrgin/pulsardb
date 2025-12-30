@@ -2,22 +2,17 @@ package integration
 
 import (
 	"context"
+	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/test/integration/helper"
 	"testing"
 	"time"
-
-	"pulsardb/internal/transport/gen/commandevents"
-	"pulsardb/internal/types"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestCmdService_ValidationErrors(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -29,16 +24,18 @@ func TestCmdService_ValidationErrors(t *testing.T) {
 		{
 			name: "SET without key",
 			req: &commandeventspb.CommandEventRequest{
-				EventId: 1,
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_SET,
 				Key:     "",
-				Value:   types.ValueToProto("value"),
+				Value: &commandeventspb.CommandEventValue{
+					Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "value"},
+				},
 			},
 		},
 		{
 			name: "SET without value",
 			req: &commandeventspb.CommandEventRequest{
-				EventId: 2,
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_SET,
 				Key:     "key",
 				Value:   nil,
@@ -47,7 +44,7 @@ func TestCmdService_ValidationErrors(t *testing.T) {
 		{
 			name: "GET without key",
 			req: &commandeventspb.CommandEventRequest{
-				EventId: 3,
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_GET,
 				Key:     "",
 			},
@@ -55,16 +52,18 @@ func TestCmdService_ValidationErrors(t *testing.T) {
 		{
 			name: "GET with value",
 			req: &commandeventspb.CommandEventRequest{
-				EventId: 4,
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_GET,
 				Key:     "key",
-				Value:   types.ValueToProto("should not have"),
+				Value: &commandeventspb.CommandEventValue{
+					Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "should not have"},
+				},
 			},
 		},
 		{
 			name: "DELETE without key",
 			req: &commandeventspb.CommandEventRequest{
-				EventId: 5,
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_DELETE,
 				Key:     "",
 			},
@@ -72,70 +71,60 @@ func TestCmdService_ValidationErrors(t *testing.T) {
 		{
 			name: "DELETE with value",
 			req: &commandeventspb.CommandEventRequest{
-				EventId: 6,
+				EventId: helper.NewEventID(),
 				Type:    commandeventspb.CommandEventType_DELETE,
 				Key:     "key",
-				Value:   types.ValueToProto("should not have"),
+				Value: &commandeventspb.CommandEventValue{
+					Value: &commandeventspb.CommandEventValue_StringValue{StringValue: "should not have"},
+				},
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := cluster.ProcessCommand(ctx, tc.req)
+			_, err := cluster.SendToLeader(ctx, tc.req)
 			require.Error(t, err)
 		})
 	}
 }
 
 func TestCmdService_ContextTimeout(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
 	time.Sleep(1 * time.Millisecond)
 
-	err = cluster.SetValue(ctx, "timeout-key", "value")
+	err := cluster.Set(ctx, "timeout-key", "value")
 	require.Error(t, err)
 }
 
 func TestCmdService_ContextCancellation(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err = cluster.SetValue(ctx, "cancelled-key", "value")
+	err := cluster.Set(ctx, "cancelled-key", "value")
 	require.Error(t, err)
 }
 
 func TestCmdService_UnknownCommandType(t *testing.T) {
-	cluster := NewCommandTestCluster(t)
-	defer cluster.Cleanup()
-
-	require.NoError(t, cluster.StartNodes(3))
-	_, err := cluster.WaitForLeader(10 * time.Second)
-	require.NoError(t, err)
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: 100,
+		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType(999),
 		Key:     "key",
 	}
 
-	_, err = cluster.ProcessCommand(ctx, req)
+	_, err := cluster.SendToLeader(ctx, req)
 	require.Error(t, err)
 }

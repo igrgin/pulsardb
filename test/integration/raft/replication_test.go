@@ -3,92 +3,67 @@ package integration
 import (
 	"context"
 	"fmt"
+	"pulsardb/test/integration/helper"
 	"sync"
 	"testing"
 	"time"
 
-	"pulsardb/internal/transport/gen/commandevents"
+	commandeventspb "pulsardb/internal/transport/gen/commandevents"
 )
 
 func TestBasicSetOperation(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
-
-	if _, err := tc.WaitForLeader(10 * time.Second); err != nil {
-		t.Fatalf("failed to elect leader: %v", err)
-	}
+	c.StartNodes(3, 60)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := tc.ProposeValue(ctx, "test-key", "test-value"); err != nil {
+	if err := c.Set(ctx, "test-key", "test-value"); err != nil {
 		t.Fatalf("failed to propose: %v", err)
 	}
 
-	if err := tc.WaitForConvergence(5 * time.Second); err != nil {
+	if err := c.WaitForConvergence(5 * time.Second); err != nil {
 		t.Fatalf("failed to converge: %v", err)
 	}
 
 	for id := uint64(1); id <= 3; id++ {
-		node := tc.GetNode(id)
+		node := c.GetNode(id)
 		val, exists := node.StateMachine.Get("test-key")
 		if !exists {
 			t.Errorf("node %d: key not found", id)
 			continue
 		}
-		if string(val) != "test-value" {
+
+		strVal, _ := helper.AsString(val)
+		if strVal != "test-value" {
 			t.Errorf("node %d: expected 'test-value', got %q", id, val)
 		}
 	}
 }
 
 func TestBasicDeleteOperation(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
-
-	if _, err := tc.WaitForLeader(10 * time.Second); err != nil {
-		t.Fatalf("failed to elect leader: %v", err)
-	}
+	c.StartNodes(3, 60)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := tc.ProposeValue(ctx, "delete-key", "some-value"); err != nil {
+	if err := c.Set(ctx, "delete-key", "some-value"); err != nil {
 		t.Fatalf("failed to set: %v", err)
 	}
 
-	leader := tc.GetLeader()
-	req := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
-		Type:    commandeventspb.CommandEventType_DELETE,
-		Key:     "delete-key",
+	if err := c.Delete(ctx, "delete-key"); err != nil {
+		t.Fatalf("failed to delete: %v", err)
 	}
 
-	respCh, err := leader.Batcher.Submit(ctx, req)
-	if err != nil {
-		t.Fatalf("failed to propose delete: %v", err)
-	}
-
-	select {
-	case <-respCh:
-	case <-ctx.Done():
-		t.Fatalf("timeout waiting for delete response")
-	}
-
-	if err := tc.WaitForConvergence(5 * time.Second); err != nil {
+	if err := c.WaitForConvergence(5 * time.Second); err != nil {
 		t.Fatalf("failed to converge: %v", err)
 	}
 
 	for id := uint64(1); id <= 3; id++ {
-		node := tc.GetNode(id)
+		node := c.GetNode(id)
 		_, exists := node.StateMachine.Get("delete-key")
 		if exists {
 			t.Errorf("node %d: key should be deleted", id)
@@ -97,16 +72,9 @@ func TestBasicDeleteOperation(t *testing.T) {
 }
 
 func TestConcurrentWrites(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
-
-	if _, err := tc.WaitForLeader(10 * time.Second); err != nil {
-		t.Fatalf("failed to elect leader: %v", err)
-	}
+	c.StartNodes(3, 60)
 
 	const numWrites = 100
 	var wg sync.WaitGroup
@@ -121,7 +89,7 @@ func TestConcurrentWrites(t *testing.T) {
 			defer wg.Done()
 			key := fmt.Sprintf("key-%d", i)
 			value := fmt.Sprintf("value-%d", i)
-			if err := tc.ProposeValue(ctx, key, value); err != nil {
+			if err := c.Set(ctx, key, value); err != nil {
 				errors <- fmt.Errorf("write %d failed: %w", i, err)
 			}
 		}(i)
@@ -140,11 +108,11 @@ func TestConcurrentWrites(t *testing.T) {
 		t.Errorf("%d/%d writes failed", errCount, numWrites)
 	}
 
-	if err := tc.WaitForConvergence(10 * time.Second); err != nil {
+	if err := c.WaitForConvergence(10 * time.Second); err != nil {
 		t.Fatalf("failed to converge: %v", err)
 	}
 
-	leader := tc.GetLeader()
+	leader := c.GetLeader()
 	for i := 0; i < numWrites; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		expectedValue := fmt.Sprintf("value-%d", i)
@@ -154,42 +122,42 @@ func TestConcurrentWrites(t *testing.T) {
 			t.Errorf("key %s not found", key)
 			continue
 		}
-		if string(val) != expectedValue {
+
+		strVal, _ := helper.AsString(val)
+
+		if strVal != expectedValue {
 			t.Errorf("key %s: expected %q, got %q", key, expectedValue, val)
 		}
 	}
 }
 
 func TestWriteWhenNoLeader(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
-	leaderID, err := tc.WaitForLeader(10 * time.Second)
+	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
 	for id := uint64(1); id <= 3; id++ {
-		tc.StopNode(id)
+		c.StopNode(id)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	tc.RestartNode(leaderID)
+	c.RestartNode(leaderID)
 	time.Sleep(500 * time.Millisecond)
 
-	node := tc.GetNode(leaderID)
+	node := c.GetNode(leaderID)
 	if node == nil {
 		t.Fatalf("node not found after restart")
 	}
 
 	req := &commandeventspb.CommandEventRequest{
-		EventId: uint64(time.Now().UnixNano()),
+		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
 		Key:     "no-leader-key",
 		Value: &commandeventspb.CommandEventValue{
@@ -197,7 +165,7 @@ func TestWriteWhenNoLeader(t *testing.T) {
 		},
 	}
 
-	_, err = node.Batcher.Submit(ctx, req)
+	_, _ = node.CmdService.ProcessCommand(ctx, req)
 
 	time.Sleep(3 * time.Second)
 
@@ -208,14 +176,11 @@ func TestWriteWhenNoLeader(t *testing.T) {
 }
 
 func TestWriteDuringLeaderChange(t *testing.T) {
-	tc := NewTestCluster(t)
-	defer tc.Cleanup()
+	c := helper.NewCluster(t, nil, "info")
 
-	if err := tc.StartNodes(3); err != nil {
-		t.Fatalf("failed to start nodes: %v", err)
-	}
+	c.StartNodes(3, 60)
 
-	leaderID, err := tc.WaitForLeader(10 * time.Second)
+	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
@@ -230,7 +195,7 @@ func TestWriteDuringLeaderChange(t *testing.T) {
 		defer close(done)
 		for i := 0; i < 50; i++ {
 			key := fmt.Sprintf("leader-change-key-%d", i)
-			err := tc.ProposeValue(ctx, key, "value")
+			err := c.Set(ctx, key, "value")
 			if err != nil {
 				writeErrors <- err
 			}
@@ -239,7 +204,7 @@ func TestWriteDuringLeaderChange(t *testing.T) {
 	}()
 
 	time.Sleep(100 * time.Millisecond)
-	tc.StopNode(leaderID)
+	c.StopNode(leaderID)
 
 	<-done
 	close(writeErrors)
@@ -250,12 +215,12 @@ func TestWriteDuringLeaderChange(t *testing.T) {
 	}
 	t.Logf("%d errors during leader change (expected some)", errCount)
 
-	_, err = tc.WaitForLeader(10 * time.Second)
+	_, err = c.WaitForLeader(10 * time.Second)
 	if err != nil {
 		t.Fatalf("failed to elect new leader: %v", err)
 	}
 
-	if err := tc.WaitForConvergence(10 * time.Second); err != nil {
+	if err := c.WaitForConvergence(10 * time.Second); err != nil {
 		t.Logf("convergence warning: %v", err)
 	}
 }
