@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"pulsardb/internal/configuration"
 	"pulsardb/internal/domain"
+	"pulsardb/internal/metrics"
 	"pulsardb/internal/storage"
 	"pulsardb/internal/transport/gen/commandevents"
 	"pulsardb/internal/transport/gen/raft"
@@ -117,8 +118,11 @@ func (s *Service) CallRaftStep(ctx context.Context, m raftpb.Message) error {
 }
 
 func (s *Service) doReadIndex(ctx context.Context) (uint64, error) {
+	start := time.Now()
+
 	if s.Node.Status().Lead == 0 {
 		slog.Debug("read index failed: no leader", "node_id", s.Node.Id)
+		metrics.ReadIndexTotal.WithLabelValues("no_leader").Inc()
 		return 0, ErrNotLeader
 	}
 
@@ -132,17 +136,22 @@ func (s *Service) doReadIndex(ctx context.Context) (uint64, error) {
 
 	if err := s.Node.ReadIndex(ctx, reqCtx); err != nil {
 		slog.Debug("read index request failed", "node_id", s.Node.Id, "error", err)
+		metrics.ReadIndexTotal.WithLabelValues("error").Inc()
 		return 0, fmt.Errorf("ReadIndex: %w", err)
 	}
 
 	select {
 	case idx := <-ch:
 		slog.Debug("read index received", "node_id", s.Node.Id, "index", idx)
+		metrics.ReadIndexTotal.WithLabelValues("success").Inc()
+		metrics.ReadIndexDuration.Observe(time.Since(start).Seconds())
 		return idx, nil
 	case <-ctx.Done():
 		slog.Debug("read index timeout", "node_id", s.Node.Id)
+		metrics.ReadIndexTotal.WithLabelValues("timeout").Inc()
 		return 0, ctx.Err()
 	case <-s.stopCh:
+		metrics.ReadIndexTotal.WithLabelValues("cancelled").Inc()
 		return 0, context.Canceled
 	}
 }
@@ -362,6 +371,8 @@ func (s *Service) applyNormalEntry(entry raftpb.Entry) {
 }
 
 func (s *Service) TriggerSnapshot(snapCount uint64) error {
+	start := time.Now()
+
 	lastApplied := s.LastApplied()
 	if lastApplied == 0 {
 		slog.Debug("skip snapshot: no applied entries")
@@ -382,6 +393,8 @@ func (s *Service) TriggerSnapshot(snapCount uint64) error {
 		)
 		return nil
 	}
+
+	metrics.StorageSnapshotSize.Set(float64(len(data)))
 
 	confState := s.Node.ConfState()
 
@@ -406,6 +419,9 @@ func (s *Service) TriggerSnapshot(snapCount uint64) error {
 	if err := s.Node.Storage().Compact(compactIndex); err != nil {
 		slog.Warn("compact failed", "error", err)
 	}
+
+	metrics.RaftSnapshotsTotal.Inc()
+	metrics.RaftSnapshotDuration.Observe(time.Since(start).Seconds())
 
 	slog.Info("triggered snapshot",
 		"index", snap.Metadata.Index,

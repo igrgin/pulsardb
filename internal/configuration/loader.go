@@ -46,6 +46,10 @@ func Load(opts ...func(*LoadOptions)) (*Properties, error) {
 		}
 	}
 
+	if cfg.Raft.RaftPeersRaw != "" || cfg.Raft.ClientPeersRaw != "" {
+		cfg.Raft.MergePeersFromEnv()
+	}
+
 	return cfg, nil
 }
 

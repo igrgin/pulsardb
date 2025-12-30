@@ -1,5 +1,11 @@
 app:
   log-level: ${LOG_LEVEL:info}
+  quorum-wait-time: ${QUORUM_WAIT_TIME:30}
+
+metrics:
+  enabled: ${METRICS_ENABLED:false}
+  address: ${METRICS_ADDRESS}
+  port: ${METRICS_PORT:9090}
 
 transport:
   client-port: ${CLIENT_PORT:50051}
@@ -25,6 +31,8 @@ raft:
   timeout: ${RAFT_TIMEOUT:10}
   step-inbox-size: ${STEP_INBOX_SIZE:4096}
   send-queue-size: ${SEND_QUEUE_SIZE:1024}
+  raft-peers-env: ${RAFT_PEERS:}
+  client-peers-env: ${CLIENT_PEERS:}
   etcd:
     election-tick: ${ETCD_ELECTION_TICK:10}
     heartbeat-tick: ${ETCD_HEARTBEAT_TICK:1}
@@ -32,4 +40,4 @@ raft:
     max-inflight-msgs: ${MAX_INFLIGHT_MSG:256}
     max-uncommitted-entries-size: ${MAX_UNCOMMITTED_ENTRIES_SIZE:1_073_741_824}
   wal:
-    no-sync: ${WAL_NO_SYNC:false}
+    no-sync: ${WAL_NO_SYNC:true}

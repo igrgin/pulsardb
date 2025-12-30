@@ -25,3 +25,7 @@ func (c *AppConfigProvider) GetTransport() *TransportConfigurationProperties {
 func (c *AppConfigProvider) GetRaft() *RaftConfigurationProperties {
 	return &c.config.Raft
 }
+
+func (c *AppConfigProvider) GetMetrics() *MetricsConfigurationProperties {
+	return &c.config.Metrics
+}

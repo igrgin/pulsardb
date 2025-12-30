@@ -2,6 +2,7 @@ package raft
 
 import (
 	"log/slog"
+	"pulsardb/internal/metrics"
 	"time"
 
 	etcdraft "go.etcd.io/raft/v3"
@@ -14,7 +15,49 @@ func (s *Service) startLoop() {
 		defer s.stoppedWg.Done()
 		s.runLoop()
 	}()
+
+	// Start metrics collector
+	s.stoppedWg.Add(1)
+	go func() {
+		defer s.stoppedWg.Done()
+		s.collectMetrics()
+	}()
+
 	slog.Info("raft loop started", "node_id", s.Node.Id)
+}
+
+func (s *Service) collectMetrics() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			s.updateMetrics()
+		}
+	}
+}
+
+func (s *Service) updateMetrics() {
+	status := s.Node.Status()
+
+	if status.RaftState == etcdraft.StateLeader {
+		metrics.RaftIsLeader.Set(1)
+	} else {
+		metrics.RaftIsLeader.Set(0)
+	}
+
+	metrics.RaftTerm.Set(float64(status.Term))
+	metrics.RaftCommitIndex.Set(float64(status.Commit))
+	metrics.RaftAppliedIndex.Set(float64(s.LastApplied()))
+	metrics.RaftSnapshotIndex.Set(float64(s.Node.Storage().SnapshotIndex()))
+
+	confState := s.Node.ConfState()
+	metrics.RaftPeersTotal.Set(float64(len(confState.Voters) + len(confState.Learners)))
+
+	metrics.StorageKeysTotal.Set(float64(s.StoreService.Len()))
 }
 
 func (s *Service) runLoop() {
@@ -134,6 +177,9 @@ func (s *Service) maybeSnapshot() {
 func (s *Service) sendMessages(msgs []raftpb.Message) {
 	if len(msgs) > 0 {
 		slog.Debug("sending raft messages", "count", len(msgs))
+		for _, msg := range msgs {
+			metrics.RaftMessagesTotal.WithLabelValues("sent", msg.Type.String()).Inc()
+		}
 	}
 	s.Node.sendMessages(msgs)
 }

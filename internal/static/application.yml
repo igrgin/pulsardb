@@ -3,6 +3,10 @@ app:
   log-level: info
   quorum-wait-time: 30 # seconds
 
+metrics:
+  enabled: true
+  address: 127.0.0.1
+
 transport:
   network: tcp
   address: 127.0.0.1
@@ -17,8 +21,8 @@ transport:
     timeout: 60
 
 raft:
-  batch-size: 100
-  batch-max-wait: 2ms
+  batch-size: 35
+  batch-max-wait: 20ms
   tick-interval: 100ms
   snap-count: 100_000 # Snapshot every X entries
   timeout: 10 # seconds

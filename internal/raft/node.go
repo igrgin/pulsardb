@@ -2,8 +2,10 @@ package raft
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"pulsardb/internal/configuration"
+	"pulsardb/internal/metrics"
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
 	"sync"
 	"time"
@@ -338,6 +340,7 @@ func (n *Node) sendMessage(msg raftpb.Message) {
 			"type", msg.Type,
 		)
 		n.raftNode.ReportUnreachable(msg.To)
+		metrics.RaftMessageErrors.WithLabelValues(fmt.Sprintf("%d", msg.To)).Inc()
 		return
 	}
 
@@ -361,6 +364,7 @@ func (n *Node) sendMessage(msg raftpb.Message) {
 			"error", err,
 		)
 		n.raftNode.ReportUnreachable(msg.To)
+		metrics.RaftMessageErrors.WithLabelValues(fmt.Sprintf("%d", msg.To)).Inc()
 	}
 }
 

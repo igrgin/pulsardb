@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"pulsardb/internal/metrics"
 	"pulsardb/internal/raft"
 
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
@@ -35,6 +36,8 @@ func (h *RaftTransportHandler) SendRaftMessage(
 	if err := msg.Unmarshal(req.GetData()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal: %v", err)
 	}
+
+	metrics.RaftMessagesTotal.WithLabelValues("received", msg.Type.String()).Inc()
 
 	if err := h.handler.Step(ctx, msg); err != nil {
 		return nil, raftError(err)

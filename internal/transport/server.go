@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"pulsardb/internal/configuration"
+	"pulsardb/internal/metrics"
 
 	"pulsardb/internal/transport/gen/commandevents"
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
@@ -39,10 +40,12 @@ func NewServer(
 	RaftOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(cfg.RaftTransportConfig.MaxConcurrentStreams),
 		grpc.NumStreamWorkers(cfg.ClientTransportConfig.NumStreamWorkers),
+		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
 	}
 	ClientOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(cfg.ClientTransportConfig.MaxConcurrentStreams),
 		grpc.NumStreamWorkers(cfg.ClientTransportConfig.NumStreamWorkers),
+		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
 	}
 
 	s.clientServer = grpc.NewServer(ClientOpts...)

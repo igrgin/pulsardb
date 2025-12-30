@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"pulsardb/convert"
+	"pulsardb/internal/metrics"
 
 	snapshotpb "pulsardb/internal/raft/gen"
 
@@ -54,7 +55,13 @@ func (s *Service) Snapshot() ([]byte, error) {
 		})
 	}
 
-	return proto.Marshal(snap)
+	bytes, err := proto.Marshal(snap)
+	if err != nil {
+		return nil, err
+	}
+
+	metrics.StorageSnapshotSize.Set(float64(len(bytes)))
+	return bytes, nil
 }
 
 func (s *Service) Restore(data []byte) error {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"pulsardb/internal/domain"
+	"pulsardb/internal/metrics"
+	"pulsardb/internal/transport/gen/commandevents"
 	"sync"
 	"time"
-
-	"pulsardb/internal/transport/gen/commandevents"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -98,6 +98,8 @@ func (b *Batcher) cleanupExpired() {
 		slog.Debug("cleaned up expired commands", "expired", expired, "remaining", len(alive))
 	}
 
+	metrics.BatchPendingCommands.Set(float64(len(b.pending)))
+
 	if len(b.pending) == 0 && b.timer != nil {
 		b.timer.Stop()
 		b.timer = nil
@@ -124,10 +126,13 @@ func (b *Batcher) Submit(
 		resp: respCh,
 	})
 
+	metrics.BatchPendingCommands.Set(float64(len(b.pending)))
+
 	slog.Debug("command submitted", "eventId", req.EventId, "pending", len(b.pending))
 
 	if len(b.pending) >= b.maxSize {
 		slog.Debug("batch full, flushing", "size", len(b.pending))
+		metrics.BatchFlushTotal.WithLabelValues("full").Inc()
 		b.flushLocked()
 		return respCh, nil
 	}
@@ -138,6 +143,7 @@ func (b *Batcher) Submit(
 			defer b.mu.Unlock()
 			if len(b.pending) > 0 {
 				slog.Debug("batch timer expired, flushing", "size", len(b.pending))
+				metrics.BatchFlushTotal.WithLabelValues("timeout").Inc()
 				b.flushLocked()
 			}
 		})
@@ -166,11 +172,15 @@ func (b *Batcher) flushLocked() {
 	if len(alive) == 0 {
 		slog.Debug("flush skipped: all commands expired")
 		b.pending = make([]pendingCmd, 0, b.maxSize)
+		metrics.BatchPendingCommands.Set(0)
 		return
 	}
 
 	batch := alive
 	b.pending = make([]pendingCmd, 0, b.maxSize)
+	metrics.BatchPendingCommands.Set(0)
+
+	metrics.BatchSize.Observe(float64(len(batch)))
 
 	slog.Debug("flushing batch", "size", len(batch))
 	go b.sendBatch(batch)
@@ -196,9 +206,12 @@ func (b *Batcher) sendBatch(batch []pendingCmd) {
 	ctx, cancel := b.deriveContext(batch)
 	defer cancel()
 
+	metrics.RaftProposalsTotal.Inc()
+
 	slog.Debug("proposing batch", "size", len(batch), "bytes", len(data))
 	if err := b.proposer.Propose(ctx, data); err != nil {
 		slog.Warn("batch proposal failed", "error", err, "size", len(batch))
+		metrics.RaftProposalsFailed.Inc()
 		b.failBatch(batch, err)
 	}
 }

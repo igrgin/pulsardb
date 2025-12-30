@@ -2,6 +2,9 @@ transport:
   client-port: 50051
   raft-port: 50052
 
+metrics:
+  port: 9090
+
 raft:
   node-id: 1
   raft-peers:

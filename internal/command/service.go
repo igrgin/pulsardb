@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"pulsardb/convert"
+	"pulsardb/internal/domain"
+	"pulsardb/internal/metrics"
+	"pulsardb/internal/transport/gen/commandevents"
 	"sync"
 	"time"
-
-	"pulsardb/internal/domain"
-	"pulsardb/internal/transport/gen/commandevents"
 )
 
 type BatchConfig struct {
@@ -46,22 +46,44 @@ func (s *Service) ProcessCommand(
 	ctx context.Context,
 	req *commandeventspb.CommandEventRequest,
 ) (*commandeventspb.CommandEventResponse, error) {
+	start := time.Now()
+	cmdType := req.Type.String()
+
+	metrics.CommandsInFlight.Inc()
+	defer metrics.CommandsInFlight.Dec()
+
 	slog.Debug("processing command", "eventId", req.EventId, "type", req.Type, "key", req.Key)
 
 	if err := s.validate(req); err != nil {
 		slog.Warn("command validation failed", "eventId", req.EventId, "error", err)
+		metrics.CommandsTotal.WithLabelValues(cmdType, "invalid").Inc()
 		return nil, fmt.Errorf("command validation failed with error: %w", err)
 	}
 
+	var resp *commandeventspb.CommandEventResponse
+	var err error
+
 	switch req.Type {
 	case commandeventspb.CommandEventType_GET:
-		return s.read(ctx, req)
+		resp, err = s.read(ctx, req)
 	case commandeventspb.CommandEventType_SET, commandeventspb.CommandEventType_DELETE:
-		return s.write(ctx, req)
+		resp, err = s.write(ctx, req)
 	default:
 		slog.Warn("unknown command type", "eventId", req.EventId, "type", req.Type)
+		metrics.CommandsTotal.WithLabelValues(cmdType, "invalid").Inc()
 		return nil, fmt.Errorf("%w: unknown type %s", ErrInvalidCommand, req.Type)
 	}
+
+	duration := time.Since(start).Seconds()
+	metrics.CommandDuration.WithLabelValues(cmdType).Observe(duration)
+
+	if err != nil {
+		metrics.CommandsTotal.WithLabelValues(cmdType, "error").Inc()
+	} else {
+		metrics.CommandsTotal.WithLabelValues(cmdType, "success").Inc()
+	}
+
+	return resp, err
 }
 
 func (s *Service) read(
