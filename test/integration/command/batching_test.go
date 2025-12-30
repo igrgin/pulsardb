@@ -74,7 +74,7 @@ func TestBatchByTime(t *testing.T) {
 	cfg := &helper.TestClusterConfig{
 		TickInterval: 100 * time.Millisecond,
 		ElectionTick: 10,
-		BatchSize:    100, // Large batch size to force time-based flush
+		BatchSize:    100,
 		BatchWait:    50,
 	}
 	c := helper.NewCluster(t, cfg, "info")
@@ -105,7 +105,6 @@ func TestBatchByTime(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Success, "expected success, got error: %v", resp.GetError())
 
-	// Should complete within a reasonable time (batch timer + processing)
 	t.Logf("response came in %v (batch timer: %v)", elapsed, cfg.BatchWait)
 }
 
@@ -133,7 +132,7 @@ func TestMixedBatchTriggers(t *testing.T) {
 	var mu sync.Mutex
 
 	for wave := 0; wave < 5; wave++ {
-		// Full batch (10 requests) - should trigger size-based flush
+
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func(w, i int) {
@@ -157,7 +156,6 @@ func TestMixedBatchTriggers(t *testing.T) {
 
 		time.Sleep(20 * time.Millisecond)
 
-		// Partial batch (3 requests) - should trigger time-based flush
 		for i := 0; i < 3; i++ {
 			wg.Add(1)
 			go func(w, i int) {

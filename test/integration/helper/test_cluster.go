@@ -45,7 +45,6 @@ func allocPort() int {
 	return port
 }
 
-// TestClusterConfig allows customizing the test cluster environment
 type TestClusterConfig struct {
 	TickInterval time.Duration
 	ElectionTick int
@@ -53,7 +52,6 @@ type TestClusterConfig struct {
 	BatchWait    time.Duration
 }
 
-// DefaultConfig provides sensible defaults for testing
 var DefaultConfig = TestClusterConfig{
 	TickInterval: 100 * time.Millisecond,
 	ElectionTick: 10,
@@ -61,17 +59,14 @@ var DefaultConfig = TestClusterConfig{
 	BatchWait:    2,
 }
 
-// Cluster manages a cluster of nodes for integration testing.
-// It brings up the full stack: Raft -> Store -> StateMachine -> CommandService.
 type Cluster struct {
 	t       *testing.T
 	config  TestClusterConfig
 	nodes   map[uint64]*TestNode
 	BaseDir string
-	mu      sync.RWMutex // Protects the nodes map
+	mu      sync.RWMutex
 }
 
-// Node represents a single node in the test cluster
 type TestNode struct {
 	ID             uint64
 	RaftNode       *raft.Node
@@ -86,17 +81,15 @@ type TestNode struct {
 	RaftLis        net.Listener
 	ClientLis      net.Listener
 
-	// State tracking
 	stopped bool
 	mu      sync.Mutex
 }
 
 var initLogging sync.Once
 
-// NewCluster creates a new test cluster. It automatically registers cleanup handlers.
 func NewCluster(t *testing.T, cfg *TestClusterConfig, logLevel string) *Cluster {
 	initLogging.Do(func() {
-		logging.Init(logLevel) // Use debug level for tests
+		logging.Init(logLevel)
 	})
 
 	baseDir, err := os.MkdirTemp("", "pulsar-integration-*")
@@ -114,18 +107,15 @@ func NewCluster(t *testing.T, cfg *TestClusterConfig, logLevel string) *Cluster 
 		BaseDir: baseDir,
 	}
 
-	// Register automatic cleanup when the test finishes (Pass/Fail/Panic)
 	t.Cleanup(c.cleanup)
 
 	return c
 }
 
-// StartNodes initializes and starts n nodes
 func (c *Cluster) StartNodes(n int, timeout uint64) {
 	raftAddrs := make(map[uint64]string)
 	clientAddrs := make(map[uint64]string)
 
-	// Pre-allocate configurations to establish peer maps
 	nodeCfgs := make([]struct {
 		id         uint64
 		raftAddr   string
@@ -145,7 +135,7 @@ func (c *Cluster) StartNodes(n int, timeout uint64) {
 	}
 
 	for _, cfg := range nodeCfgs {
-		// Filter peers (exclude self)
+
 		peers := make(map[uint64]string)
 		clientPeers := make(map[uint64]string)
 		for id, addr := range raftAddrs {
@@ -184,7 +174,7 @@ func (c *Cluster) startNode(
 		RaftPeers:     raftPeers,
 		ClientPeers:   clientPeers,
 		TickInterval:  c.config.TickInterval,
-		Timeout:       5, // 5 seconds
+		Timeout:       5,
 		SnapCount:     1000,
 		BatchSize:     c.config.BatchSize,
 		BatchMaxWait:  c.config.BatchWait,
@@ -194,7 +184,7 @@ func (c *Cluster) startNode(
 			HeartbeatTick: 1,
 		},
 		Wal: configuration.WriteAheadLogProperties{
-			NoSync: true, // Faster tests
+			NoSync: true,
 		},
 	}
 
@@ -214,11 +204,8 @@ func (c *Cluster) startNode(
 
 	cmdSvc := command.NewService(storageSvc, raftSvc, batchCfg)
 
-	// Important: Wire the StateMachine callback to the CommandService
-	// so pending requests get notified when logs are applied
 	sm.OnApply(cmdSvc.HandleApplied)
 
-	// Networking setup
 	raftLis, err := net.Listen("tcp", raftAddr)
 	if err != nil {
 		raftNode.Stop()
@@ -272,7 +259,6 @@ func (c *Cluster) startNode(
 	return nil
 }
 
-// cleanup is called automatically by t.Cleanup
 func (c *Cluster) cleanup() {
 	c.mu.Lock()
 	nodes := make([]*TestNode, 0, len(c.nodes))
@@ -296,7 +282,6 @@ func (c *Cluster) cleanup() {
 	os.RemoveAll(c.BaseDir)
 }
 
-// RestartNode simulates a node crash and recovery
 func (c *Cluster) RestartNode(id uint64) error {
 	c.mu.RLock()
 	oldNode, ok := c.nodes[id]
@@ -310,7 +295,6 @@ func (c *Cluster) RestartNode(id uint64) error {
 	raftAddr := oldNode.RaftAddr
 	clientAddr := oldNode.ClientAddr
 
-	// Stop existing if not already stopped
 	if !oldNode.stopped {
 		oldNode.RaftServer.GracefulStop()
 		oldNode.ClientServer.GracefulStop()
@@ -320,7 +304,6 @@ func (c *Cluster) RestartNode(id uint64) error {
 	}
 	oldNode.mu.Unlock()
 
-	// Rebuild peer list from other active nodes
 	raftPeers := make(map[uint64]string)
 	clientPeers := make(map[uint64]string)
 
@@ -365,8 +348,6 @@ func (c *Cluster) StopNode(id uint64) error {
 	return nil
 }
 
-// --- Interaction Helpers ---
-
 func (c *Cluster) GetLeader() *TestNode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -392,12 +373,10 @@ func (c *Cluster) GetNode(id uint64) *TestNode {
 	return c.nodes[id]
 }
 
-// WaitForLeader polls until a leader is elected
 func (c *Cluster) WaitForLeader(timeout time.Duration) (uint64, error) {
 	return c.waitForLeaderInternal(0, timeout)
 }
 
-// WaitForNewLeader polls until a leader *different* from excludeID is elected
 func (c *Cluster) WaitForNewLeader(excludeID uint64, timeout time.Duration) (uint64, error) {
 	return c.waitForLeaderInternal(excludeID, timeout)
 }
@@ -422,7 +401,6 @@ func (c *Cluster) waitForLeaderInternal(excludeID uint64, timeout time.Duration)
 	}
 }
 
-// WaitForConvergence checks if all nodes have applied the same index
 func (c *Cluster) WaitForConvergence(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -467,7 +445,6 @@ func (c *Cluster) WaitForConvergence(timeout time.Duration) error {
 	}
 }
 
-// WaitForLeaderConvergence waits until all non-stopped nodes agree on the same leader
 func (c *Cluster) WaitForLeaderConvergence(timeout time.Duration) (uint64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -516,8 +493,6 @@ func (c *Cluster) WaitForLeaderConvergence(timeout time.Duration) (uint64, error
 		}
 	}
 }
-
-// --- Data Operation Helpers ---
 
 func (c *Cluster) Set(ctx context.Context, key, value string) error {
 	req := &commandeventspb.CommandEventRequest{
@@ -579,7 +554,7 @@ func (c *Cluster) Delete(ctx context.Context, key string) error {
 }
 
 func (c *Cluster) SendToLeader(ctx context.Context, req *commandeventspb.CommandEventRequest) (*commandeventspb.CommandEventResponse, error) {
-	// Simple retry loop for leader election delay
+
 	for i := 0; i < 5; i++ {
 		leader := c.GetLeader()
 		if leader != nil {
@@ -590,7 +565,6 @@ func (c *Cluster) SendToLeader(ctx context.Context, req *commandeventspb.Command
 	return nil, fmt.Errorf("no leader available")
 }
 
-// VerifyConsistency ensures all nodes have the same value for a given key
 func (c *Cluster) VerifyConsistency(key string) (bool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -628,8 +602,6 @@ func (c *Cluster) VerifyConsistency(key string) (bool, error) {
 	return true, nil
 }
 
-// --- GRPC Test Wrappers ---
-
 type testRaftServer struct {
 	rafttransportpb.UnimplementedRaftTransportServiceServer
 	raftSvc *raft.Service
@@ -666,8 +638,6 @@ func (s *testClientServer) ProcessCommandEvent(ctx context.Context, req *command
 	}
 	return resp, nil
 }
-
-// --- Test Assertion Helpers ---
 
 func getFreePorts(t *testing.T, n int) []string {
 	t.Helper()
@@ -710,7 +680,6 @@ func processCmd(t *testing.T, cmdSvc *command.Service, req *commandeventspb.Comm
 	return cmdSvc.ProcessCommand(ctx, req)
 }
 
-// SetValue sets a key with a typed value and returns the full response
 func (c *Cluster) SetValue(ctx context.Context, key string, value *commandeventspb.CommandEventValue) (*commandeventspb.CommandEventResponse, error) {
 	req := &commandeventspb.CommandEventRequest{
 		EventId: NewEventID(),
@@ -721,7 +690,6 @@ func (c *Cluster) SetValue(ctx context.Context, key string, value *commandevents
 	return c.SendToLeader(ctx, req)
 }
 
-// GetValue returns the full response for a GET operation
 func (c *Cluster) GetValue(ctx context.Context, key string) (*commandeventspb.CommandEventResponse, error) {
 	req := &commandeventspb.CommandEventRequest{
 		EventId: NewEventID(),
@@ -731,7 +699,6 @@ func (c *Cluster) GetValue(ctx context.Context, key string) (*commandeventspb.Co
 	return c.SendToLeader(ctx, req)
 }
 
-// GetClient returns a gRPC client connected to the leader
 func (c *Cluster) GetClient(t *testing.T) (commandeventspb.CommandEventClientServiceClient, func()) {
 	t.Helper()
 
@@ -808,7 +775,6 @@ func (c *Cluster) GetClusterAppliedIndex() uint64 {
 	return maxApplied
 }
 
-// Add WAL/snapshot deletion if needed for recovery tests
 func (c *Cluster) DeleteNodeData(id uint64) error {
 	nodeDir := filepath.Join(c.BaseDir, fmt.Sprintf("node-%d", id))
 	for _, subdir := range []string{"wal", "snapshot"} {
@@ -819,14 +785,10 @@ func (c *Cluster) DeleteNodeData(id uint64) error {
 	return nil
 }
 
-// AddNewNode creates and starts a new node without adding it to the Raft cluster.
-// Returns the raft address, client address, and any error.
-// The caller must use ProposeAddNode to add it to the cluster configuration.
 func (c *Cluster) AddNewNode(id uint64) (raftAddr, clientAddr string, err error) {
 	raftAddr = fmt.Sprintf("127.0.0.1:%d", allocPort())
 	clientAddr = fmt.Sprintf("127.0.0.1:%d", allocPort())
 
-	// Build peer list from existing nodes
 	raftPeers := make(map[uint64]string)
 	clientPeers := make(map[uint64]string)
 
@@ -844,10 +806,6 @@ func (c *Cluster) AddNewNode(id uint64) (raftAddr, clientAddr string, err error)
 	return raftAddr, clientAddr, nil
 }
 
-// AsString extracts a string from a state-machine/storage value.
-//
-// The StateMachine.Get API returns `any`, so tests must type-assert rather than
-// doing a direct conversion like `string(v)`.
 func AsString(v any) (string, bool) {
 	if v == nil {
 		return "", false
@@ -862,7 +820,6 @@ func AsString(v any) (string, bool) {
 		return x.String(), true
 	}
 
-	// Fall back to reflection for common "string-like" wrapper shapes.
 	rv := reflect.ValueOf(v)
 	if !rv.IsValid() {
 		return "", false
@@ -879,7 +836,7 @@ func AsString(v any) (string, bool) {
 	if rv.Kind() == reflect.Pointer && !rv.IsNil() {
 		e := rv.Elem()
 		if e.IsValid() && e.Kind() == reflect.Struct {
-			// Best-effort: if the stored type is a wrapper with a StringValue field.
+
 			f := e.FieldByName("StringValue")
 			if f.IsValid() && f.Kind() == reflect.String {
 				return f.String(), true

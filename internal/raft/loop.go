@@ -16,7 +16,6 @@ func (s *Service) startLoop() {
 		s.runLoop()
 	}()
 
-	// Start metrics collector
 	s.stoppedWg.Add(1)
 	go func() {
 		defer s.stoppedWg.Done()

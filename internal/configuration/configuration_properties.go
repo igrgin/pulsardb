@@ -101,7 +101,6 @@ func (c *RaftConfigurationProperties) TickDuration() time.Duration {
 	return c.TickInterval * time.Millisecond
 }
 
-// ParsePeers parses "1=host:port,2=host:port" into map[uint64]string
 func ParsePeers(s string) map[uint64]string {
 	peers := make(map[uint64]string)
 	if s == "" {
@@ -121,7 +120,6 @@ func ParsePeers(s string) map[uint64]string {
 	return peers
 }
 
-// MergePeersFromEnv merges env-based peers into the maps
 func (c *RaftConfigurationProperties) MergePeersFromEnv() {
 	if c.RaftPeers == nil {
 		c.RaftPeers = make(map[uint64]string)

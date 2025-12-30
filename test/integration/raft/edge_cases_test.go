@@ -289,7 +289,6 @@ func TestNodeIDZeroHandling(t *testing.T) {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
-	// Test that GetNode returns nil for non-existent nodes
 	node := c.GetNode(0)
 	if node != nil {
 		t.Error("should not have node for ID 0")

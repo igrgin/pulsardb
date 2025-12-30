@@ -6,7 +6,6 @@ import (
 )
 
 var (
-	// Raft metrics
 	RaftIsLeader = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "pulsardb",
 		Subsystem: "raft",
@@ -92,7 +91,6 @@ var (
 		Buckets:   prometheus.ExponentialBuckets(0.001, 2, 15),
 	})
 
-	// Command metrics
 	CommandsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "pulsardb",
 		Subsystem: "command",
@@ -115,7 +113,6 @@ var (
 		Help:      "Commands currently being processed",
 	})
 
-	// Batch metrics
 	BatchSize = promauto.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "pulsardb",
 		Subsystem: "batch",
@@ -138,7 +135,6 @@ var (
 		Help:      "Commands waiting in batch",
 	})
 
-	// Storage metrics
 	StorageKeysTotal = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "pulsardb",
 		Subsystem: "storage",
@@ -160,7 +156,6 @@ var (
 		Help:      "Size of last snapshot in bytes",
 	})
 
-	// gRPC metrics
 	GRPCRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "pulsardb",
 		Subsystem: "grpc",
@@ -176,7 +171,6 @@ var (
 		Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 20),
 	}, []string{"service", "method"})
 
-	// Read index metrics
 	ReadIndexTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "pulsardb",
 		Subsystem: "raft",
@@ -192,7 +186,6 @@ var (
 		Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 15),
 	})
 
-	// WAL metrics
 	WALWritesTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "pulsardb",
 		Subsystem: "wal",

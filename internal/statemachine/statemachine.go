@@ -37,7 +37,7 @@ func (sm *StateMachine) OnApply(cb ApplyCallback) {
 }
 
 func (sm *StateMachine) Apply(data []byte) error {
-	// Try batch first
+
 	var batch commandeventspb.BatchedCommands
 	if err := proto.Unmarshal(data, &batch); err == nil && len(batch.Commands) > 0 {
 		for _, cmd := range batch.Commands {
@@ -47,7 +47,6 @@ func (sm *StateMachine) Apply(data []byte) error {
 		return nil
 	}
 
-	// Single command
 	var cmd commandeventspb.CommandEventRequest
 	if err := proto.Unmarshal(data, &cmd); err != nil {
 		return fmt.Errorf("unmarshal command: %w", err)
@@ -92,7 +91,6 @@ func (sm *StateMachine) notify(eventID uint64, resp *commandeventspb.CommandEven
 	}
 }
 
-// ApplyReplay applies commands without notifying (for recovery)
 func (sm *StateMachine) ApplyReplay(data []byte) error {
 	var batch commandeventspb.BatchedCommands
 	if err := proto.Unmarshal(data, &batch); err == nil && len(batch.Commands) > 0 {

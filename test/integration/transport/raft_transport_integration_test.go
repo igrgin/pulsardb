@@ -15,10 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// -----------------------------------------------------------------------------
-// Transport Server Tests
-// -----------------------------------------------------------------------------
-
 func TestClientTransport_StartClientServer_AcceptsConnections(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -26,7 +22,6 @@ func TestClientTransport_StartClientServer_AcceptsConnections(t *testing.T) {
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
 
-	// If we got here without error, the connection was accepted
 	require.NotNil(t, client)
 }
 
@@ -59,7 +54,6 @@ func TestClientTransport_RequestAfterShutdown_Fails(t *testing.T) {
 
 	client, cleanup := c.GetClient(t)
 
-	// Stop the node before cleanup
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 	err := c.StopNode(leader.ID)
@@ -78,10 +72,6 @@ func TestClientTransport_RequestAfterShutdown_Fails(t *testing.T) {
 
 	require.Error(t, err)
 }
-
-// -----------------------------------------------------------------------------
-// SET Command Tests
-// -----------------------------------------------------------------------------
 
 func TestClientTransport_SET_Success(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
@@ -148,10 +138,6 @@ func TestClientTransport_SET_MissingValue_ReturnsInvalidArgument(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
-
-// -----------------------------------------------------------------------------
-// GET Command Tests
-// -----------------------------------------------------------------------------
 
 func TestClientTransport_GET_ExistingKey_ReturnsValue(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
@@ -226,10 +212,6 @@ func TestClientTransport_GET_WithValue_ReturnsInvalidArgument(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
-// -----------------------------------------------------------------------------
-// DELETE Command Tests
-// -----------------------------------------------------------------------------
-
 func TestClientTransport_DELETE_ExistingKey_Success(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -266,10 +248,6 @@ func TestClientTransport_DELETE_ExistingKey_Success(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code(err))
 }
 
-// -----------------------------------------------------------------------------
-// Response Metadata Tests
-// -----------------------------------------------------------------------------
-
 func TestClientTransport_ResponseMetadata_IsCorrect(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -293,10 +271,6 @@ func TestClientTransport_ResponseMetadata_IsCorrect(t *testing.T) {
 	integration2.RequireSuccess(t, resp, err)
 	require.Equal(t, eventID, resp.GetEventId())
 }
-
-// -----------------------------------------------------------------------------
-// Multiple Value Types Tests
-// -----------------------------------------------------------------------------
 
 func TestClientTransport_MultipleValueTypes(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
@@ -388,10 +362,6 @@ func TestClientTransport_MultipleValueTypes(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Overwrite Tests
-// -----------------------------------------------------------------------------
-
 func TestClientTransport_OverwriteExistingKey(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -431,10 +401,6 @@ func TestClientTransport_OverwriteExistingKey(t *testing.T) {
 	require.Equal(t, "overwritten", resp.GetValue().GetStringValue())
 }
 
-// -----------------------------------------------------------------------------
-// Large Value Tests
-// -----------------------------------------------------------------------------
-
 func TestClientTransport_LargeValue(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -468,10 +434,6 @@ func TestClientTransport_LargeValue(t *testing.T) {
 	integration2.RequireSuccess(t, getResp, err)
 	require.Equal(t, largeBytes, getResp.GetValue().GetBytesValue())
 }
-
-// -----------------------------------------------------------------------------
-// Concurrent Clients Tests
-// -----------------------------------------------------------------------------
 
 func TestClientTransport_ConcurrentClients(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
@@ -549,10 +511,6 @@ func TestClientTransport_ConcurrentClients(t *testing.T) {
 	}
 	require.Empty(t, errs, "concurrent operations failed: %v", errs)
 }
-
-// -----------------------------------------------------------------------------
-// Error Response Tests
-// -----------------------------------------------------------------------------
 
 func TestClientTransport_ErrorResponse_DoesNotLeakInternalDetails(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")

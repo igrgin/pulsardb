@@ -15,10 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// =============================================================================
-// Invalid Request Tests (Direct Command Service)
-// =============================================================================
-
 func TestCommand_SET_MissingKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -99,10 +95,6 @@ func TestCommand_UnknownType(t *testing.T) {
 	require.Nil(t, resp)
 }
 
-// =============================================================================
-// Basic Operations (Direct Command Service)
-// =============================================================================
-
 func TestCommand_SetThenGet_RoundTrip(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -171,10 +163,6 @@ func TestCommand_OverwriteExistingKey(t *testing.T) {
 	require.Equal(t, expectedValue, getResp)
 }
 
-// =============================================================================
-// Context Handling
-// =============================================================================
-
 func TestCommand_ContextCanceled(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -197,10 +185,6 @@ func TestCommand_ContextDeadlineExceeded(t *testing.T) {
 	_, _, err := c.Get(ctx, "key")
 	require.Error(t, err)
 }
-
-// =============================================================================
-// Multiple Value Types
-// =============================================================================
 
 func TestCommand_MultipleValueTypes(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
@@ -282,10 +266,6 @@ func TestCommand_MultipleValueTypes(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// gRPC Transport Tests
-// =============================================================================
-
 func TestTransport_SET_Success(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -362,7 +342,6 @@ func TestTransport_GET_ExistingKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Set via client
 	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
@@ -373,7 +352,6 @@ func TestTransport_GET_ExistingKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Get via client
 	resp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_GET,
@@ -437,7 +415,6 @@ func TestTransport_DELETE_ExistingKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Set
 	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_SET,
@@ -448,7 +425,6 @@ func TestTransport_DELETE_ExistingKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Delete
 	delResp, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_DELETE,
@@ -456,7 +432,6 @@ func TestTransport_DELETE_ExistingKey(t *testing.T) {
 	})
 	helper.RequireSuccess(t, delResp, err)
 
-	// Verify deleted
 	_, err = client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_GET,
@@ -594,10 +569,6 @@ func TestTransport_ConcurrentClients(t *testing.T) {
 	require.Empty(t, errs)
 }
 
-// =============================================================================
-// Cluster Tests (Multi-Node)
-// =============================================================================
-
 func TestCluster_LeaderElection(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
 	c.StartNodes(3, 60)
@@ -673,7 +644,6 @@ func TestCluster_NodeRestart(t *testing.T) {
 	err = c.WaitForConvergence(10 * time.Second)
 	require.NoError(t, err)
 
-	// Restart a follower
 	leader := c.GetLeader()
 	var followerID uint64
 	for id := uint64(1); id <= 3; id++ {
@@ -693,8 +663,6 @@ func TestCluster_NodeRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, consistent)
 }
-
-// --- Transport Lifecycle Tests (move from transport_test.go) ---
 
 func TestCommand_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
@@ -727,7 +695,6 @@ func TestCommand_RequestAfterShutdown_Fails(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	// Stop the node
 	err := c.StopNode(leader.ID)
 	require.NoError(t, err)
 	cleanup()
@@ -743,7 +710,6 @@ func TestCommand_RequestAfterShutdown_Fails(t *testing.T) {
 	require.Error(t, err)
 }
 
-// --- Error Handling Test ---
 func TestCommand_ErrorResponse_DoesNotLeakInternalDetails(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
 	c.StartNodes(1, 30)
@@ -754,7 +720,6 @@ func TestCommand_ErrorResponse_DoesNotLeakInternalDetails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Test that validation errors return InvalidArgument, not internal details
 	_, err := client.ProcessCommandEvent(ctx, &commandeventspb.CommandEventRequest{
 		EventId: helper.NewEventID(),
 		Type:    commandeventspb.CommandEventType_SET,

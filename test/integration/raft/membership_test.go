@@ -426,14 +426,12 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 			t.Fatalf("failed to add node %d: %v", newID, err)
 		}
 
-		// Capture current applied index BEFORE proposing the conf change
 		targetApplied := leader.RaftService.LastApplied()
 
 		if err := leader.RaftService.ProposeAddNode(ctx, newID, newRaftAddr); err != nil {
 			t.Fatalf("ProposeAddNode for %d failed: %v", newID, err)
 		}
 
-		// Wait for conf change to be applied on leader
 		require.Eventually(t, func() bool {
 			currentLeader := c.GetLeader()
 			if currentLeader == nil {
@@ -448,7 +446,6 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 			return false
 		}, 10*time.Second, 100*time.Millisecond, "node %d not added to voters", newID)
 
-		// Wait for the new node to catch up with at least the target index
 		newNode := c.GetNode(newID)
 		require.NotNil(t, newNode, "new node %d not found", newID)
 
@@ -464,14 +461,12 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 		t.Errorf("expected 5 voters, got %d: %v", len(confState.Voters), confState.Voters)
 	}
 
-	// Write some entries
 	for i := 0; i < 10; i++ {
 		if err := c.Set(ctx, fmt.Sprintf("five-node-key-%d", i), "value"); err != nil {
 			t.Fatalf("propose failed: %v", err)
 		}
 	}
 
-	// Wait for all nodes to apply the new entries
 	targetIndex := c.GetClusterAppliedIndex()
 	if err := c.WaitForApplied(targetIndex, 30*time.Second); err != nil {
 		t.Fatalf("convergence failed before removals: %v", err)
@@ -488,8 +483,6 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 
 		require.NoError(t, leaderNode.RaftService.ProposeRemoveNode(ctx, removeID))
 
-		// Wait for the conf change to be applied (node removed from voters)
-		// Check the current leader in case leadership changed
 		require.Eventually(t, func() bool {
 			currentLeader := c.GetLeader()
 			if currentLeader == nil {

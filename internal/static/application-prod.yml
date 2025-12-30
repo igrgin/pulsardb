@@ -40,4 +40,4 @@ raft:
     max-inflight-msgs: ${MAX_INFLIGHT_MSG:256}
     max-uncommitted-entries-size: ${MAX_UNCOMMITTED_ENTRIES_SIZE:1_073_741_824}
   wal:
-    no-sync: ${WAL_NO_SYNC:true}
+    no-sync: ${WAL_NO_SYNC:true}  
