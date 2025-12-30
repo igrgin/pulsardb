@@ -3,52 +3,53 @@ package storage
 import "sync"
 
 type Store struct {
-	kvStore map[string]any
-	mu      sync.RWMutex
+	mu   sync.RWMutex
+	data map[string]any
 }
 
 func NewStore() *Store {
 	return &Store{
-		kvStore: make(map[string]any),
+		data: make(map[string]any),
 	}
-}
-
-func (s *Store) Set(key string, value any) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.kvStore[key] = value
 }
 
 func (s *Store) Get(key string) (any, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	v, ok := s.kvStore[key]
+	v, ok := s.data[key]
 	return v, ok
+}
+
+func (s *Store) Set(key string, value any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = value
 }
 
 func (s *Store) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.kvStore, key)
+	delete(s.data, key)
 }
 
-func (s *Store) DescribeType(key string) string {
+func (s *Store) Len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return len(s.data)
+}
 
-	v, ok := s.kvStore[key]
-	if !ok {
-		return "missing"
+func (s *Store) Data() map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cp := make(map[string]any, len(s.data))
+	for k, v := range s.data {
+		cp[k] = v
 	}
+	return cp
+}
 
-	switch v.(type) {
-	case string:
-		return "string"
-	case int:
-		return "int"
-	case float64:
-		return "float64"
-	default:
-		return "unknown"
-	}
+func (s *Store) Replace(data map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data = data
 }

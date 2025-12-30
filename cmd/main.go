@@ -3,65 +3,117 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"pulsardb/internal/command"
 	"pulsardb/internal/configuration"
-	"pulsardb/internal/configuration/properties"
-	logging "pulsardb/internal/logging"
+	"pulsardb/internal/logging"
+	"pulsardb/internal/metrics"
+	"pulsardb/internal/raft"
+	"pulsardb/internal/statemachine"
 	"pulsardb/internal/storage"
 	"pulsardb/internal/transport"
-	"pulsardb/internal/transport/gen"
 	"syscall"
+	"time"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(),
-		os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+		os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	config, err := configuration.Load()
+	cfg, err := configuration.Load(func(o *configuration.LoadOptions) {
+		o.BaseDir = "internal/static"
+	})
 	if err != nil {
-		slog.Error("Failed to initialize application context", "Error", err)
-		return
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
-	logging.Init(config.Application.LogLevel)
+	logging.Init(cfg.App.LogLevel)
 	slog.Info("Starting database...")
 
-	cfgProvider := properties.NewProvider(config)
+	configProvider := configuration.NewProvider(cfg)
 
-	storageService := storage.NewStorageService()
+	slog.Info("loaded config",
+		"profile", cfg,
+		"node_id", cfg.Raft.NodeID,
+		"raft_addr", cfg.Transport.RaftAddr(),
+	)
 
-	commandConfig := cfgProvider.GetCommand()
-	cmdService := command.NewCommandService(commandConfig)
-
-	setHandler := command.NewSetHandler(storageService)
-	getHandler := command.NewGetHandler(storageService)
-	deleteHandler := command.NewDeleteHandler(storageService)
-
-	commandHandlers := map[command_events.CommandEventType]command.Handler{
-		command_events.CommandEventType_SET:    setHandler,
-		command_events.CommandEventType_GET:    getHandler,
-		command_events.CommandEventType_DELETE: deleteHandler,
+	var metricsServer *metrics.Server
+	if cfg.Metrics.Enabled {
+		metricsServer = metrics.NewServer(cfg.Metrics.Addr())
+		if err := metricsServer.Start(); err != nil {
+			slog.Error("failed to start metrics server", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("metrics server started", "addr", cfg.Metrics.Addr())
 	}
 
-	taskExecutor := command.NewTaskExecutor(cmdService, commandHandlers)
-	go taskExecutor.Execute()
+	storeService := storage.NewService()
 
-	serverConfig := cfgProvider.GetTransport()
-	transportService := transport.NewTransportService(serverConfig, cmdService)
+	stateMachine := statemachine.New(storeService)
 
-	_, err = transportService.StartServer()
+	raftNode, err := raft.NewNode(
+		configProvider.GetRaft(),
+		net.JoinHostPort(configProvider.GetTransport().Address, configProvider.GetTransport().RaftPort),
+	)
 	if err != nil {
-		slog.Error("Failed to start transport server", "Error", err)
+		slog.Error("failed to create raft node", "error", err)
+		os.Exit(1)
+	}
+
+	raftService := raft.NewService(raftNode, storeService, stateMachine, configProvider.GetRaft())
+
+	commandService := command.NewService(storeService, raftService, command.BatchConfig{
+		MaxSize: cfg.Raft.BatchSize,
+		MaxWait: cfg.Raft.BatchMaxWait,
+	})
+
+	stateMachine.OnApply(commandService.HandleApplied)
+
+	transportServer := transport.NewServer(configProvider.GetTransport(), commandService, raftService)
+
+	transportServer.StartRaft()
+	raftService.Start()
+
+	qctx, qcancel := context.WithTimeout(ctx, time.Duration(configProvider.GetApplication().QuorumWaitTime)*time.Second)
+	defer qcancel()
+
+	leaderID, readIndex, err := raftService.WaitForQuorum(qctx)
+	if err != nil {
+		slog.Error("Failed to achieve Raft quorum", "error", err)
+		shutdown(transportServer, raftService, commandService, metricsServer)
 		return
 	}
 
-	slog.Info("Database Ready")
+	go raftService.ReconcileConfiguredPeers()
+
+	transportServer.StartClient()
+
+	slog.Info("Database Ready",
+		"node_id", raftNode.Id,
+		"leader_id", leaderID,
+		"read_index", readIndex,
+	)
+
 	<-ctx.Done()
 
-	transportService.Server.GracefulStop()
-	taskExecutor.Stop()
-	slog.Info("Shutting down database...")
+	shutdown(transportServer, raftService, commandService, metricsServer)
+}
+
+func shutdown(
+	transportServer *transport.Server,
+	raftService *raft.Service,
+	commandService *command.Service,
+	metricsServer *metrics.Server,
+) {
+	transportServer.Stop()
+	commandService.Stop()
+	raftService.Stop()
+	if metricsServer != nil {
+		metricsServer.Stop()
+	}
 }

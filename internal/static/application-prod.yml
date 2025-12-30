@@ -1,2 +1,43 @@
-command:
-  queue-size: 1000
+app:
+  log-level: ${LOG_LEVEL:info}
+  quorum-wait-time: ${QUORUM_WAIT_TIME:30}
+
+metrics:
+  enabled: ${METRICS_ENABLED:false}
+  address: ${METRICS_ADDRESS}
+  port: ${METRICS_PORT:9090}
+
+transport:
+  client-port: ${CLIENT_PORT:50051}
+  raft-port: ${RAFT_PORT:50052}
+  address: ${TRANSPORT_ADDRESS}
+  raft:
+    max-concurrent-streams: ${RAFT_MAX_CONCURRENT_STREAMS:100}
+    num-stream-workers: ${RAFT_NUM_STREAM_WORKERS:20}
+    timeout: ${TRANSPORT_TIMEOUT:60}
+  client:
+    max-concurrent-streams: ${CLIENT_NUM_STREAM_WORKERS:100}
+    num-stream-workers: ${CLIENT_NUM_STREAM_WORKERS:80}
+    timeout: ${TRANSPORT_TIMEOUT:60}
+
+raft:
+  join: ${RAFT_JOIN_MODE:false}
+  node-id: ${NODE_ID}
+  storage-dir: ${STORAGE_BASE_DIR}
+  batch-size: ${RAFT_BATCH_SIZE:100}
+  batch-max-wait: ${BATCH_MAX_WAIT:2}
+  tick-interval: ${TICK_INTERVAL:1}
+  snap-count: ${SNAP_COUNT:100_000}
+  timeout: ${RAFT_TIMEOUT:10}
+  step-inbox-size: ${STEP_INBOX_SIZE:4096}
+  send-queue-size: ${SEND_QUEUE_SIZE:1024}
+  raft-peers-env: ${RAFT_PEERS:}
+  client-peers-env: ${CLIENT_PEERS:}
+  etcd:
+    election-tick: ${ETCD_ELECTION_TICK:10}
+    heartbeat-tick: ${ETCD_HEARTBEAT_TICK:1}
+    max-size-per-msg: ${MAX_SIZE_PER_MSG:1_048_576}
+    max-inflight-msgs: ${MAX_INFLIGHT_MSG:256}
+    max-uncommitted-entries-size: ${MAX_UNCOMMITTED_ENTRIES_SIZE:1_073_741_824}
+  wal:
+    no-sync: ${WAL_NO_SYNC:true}  

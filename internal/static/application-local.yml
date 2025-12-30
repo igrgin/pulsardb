@@ -1,4 +1,0 @@
-app:
-  log-level: debug
-command:
-  queue-size: 50

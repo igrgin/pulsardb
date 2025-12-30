@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package raft;
+
+option go_package = "github.com/you/pulsardb/internal/transport/gen/raft;rafttransportpb";
+
+message RaftMessage {
+  bytes data = 1;
+}
+
+message RaftMessageResponse {
+  bool ok = 1;
+}
+
+message GetReadIndexRequest {
+  uint64 from_node = 1;
+}
+
+message GetReadIndexResponse {
+  uint64 read_index = 1;
+}
+
+service RaftTransportService {
+  rpc SendRaftMessage(RaftMessage) returns (RaftMessageResponse);
+  rpc GetReadIndex(GetReadIndexRequest) returns (GetReadIndexResponse);
+}
