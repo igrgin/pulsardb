@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 	"pulsardb/test/integration/helper"
 	"strings"
 	"sync"

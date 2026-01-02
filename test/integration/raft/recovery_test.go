@@ -291,14 +291,14 @@ func TestFullClusterShutdownAndRestart(t *testing.T) {
 func TestRecoveryFromWALDeletion(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 15)
 
-	leaderID, err := c.WaitForLeader(10 * time.Second)
+	leaderID, err := c.WaitForLeader(15 * time.Second)
 	if err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	for i := 0; i < 20; i++ {
@@ -307,7 +307,7 @@ func TestRecoveryFromWALDeletion(t *testing.T) {
 		}
 	}
 
-	if err := c.WaitForConvergence(5 * time.Second); err != nil {
+	if err := c.WaitForConvergence(20 * time.Second); err != nil {
 		t.Fatalf("convergence failed: %v", err)
 	}
 
@@ -328,6 +328,13 @@ func TestRecoveryFromWALDeletion(t *testing.T) {
 		t.Fatalf("failed to delete node data: %v", err)
 	}
 
+	leader := c.GetLeader()
+	require.NotNil(t, leader)
+
+	if err := leader.RaftService.ProposeRemoveNode(ctx, victimID); err != nil {
+		t.Fatalf("ProposeRemoveNode failed: %v", err)
+	}
+
 	t.Log("Deleted WAL and snapshots from victim node")
 
 	for i := 20; i < 30; i++ {
@@ -339,7 +346,7 @@ func TestRecoveryFromWALDeletion(t *testing.T) {
 	newClusterApplied := c.GetClusterAppliedIndex()
 	t.Logf("Cluster applied index after more writes: %d", newClusterApplied)
 
-	if err := c.RestartNode(victimID); err != nil {
+	if err := c.RestartNodeAfterDataLoss(victimID); err != nil {
 		t.Fatalf("failed to restart victim: %v", err)
 	}
 
@@ -424,9 +431,13 @@ func TestRecoveryFromWALDeletionWithSnapshot(t *testing.T) {
 		}
 	}
 
+	if err := c.WaitForConvergence(5 * time.Second); err != nil {
+		t.Fatalf("convergence failed: %v", err)
+	}
+
 	targetApplied := c.GetClusterAppliedIndex()
 
-	if err := c.RestartNode(victimID); err != nil {
+	if err := c.RestartNodeAfterDataLoss(victimID); err != nil {
 		t.Fatalf("failed to restart victim: %v", err)
 	}
 
@@ -468,7 +479,7 @@ func TestLeaderRecoveryFromWALDeletion(t *testing.T) {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	for i := 0; i < 30; i++ {
@@ -505,7 +516,7 @@ func TestLeaderRecoveryFromWALDeletion(t *testing.T) {
 
 	targetApplied := c.GetClusterAppliedIndex()
 
-	if err := c.RestartNode(leaderID); err != nil {
+	if err := c.RestartNodeAfterDataLoss(leaderID); err != nil {
 		t.Fatalf("failed to restart old leader: %v", err)
 	}
 
@@ -547,7 +558,7 @@ func TestMultipleNodesRecoverFromDataLoss(t *testing.T) {
 		t.Fatalf("failed to elect leader: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	for i := 0; i < 30; i++ {
@@ -585,12 +596,12 @@ func TestMultipleNodesRecoverFromDataLoss(t *testing.T) {
 	targetApplied := c.GetClusterAppliedIndex()
 
 	for _, victimID := range []uint64{victim1, victim2} {
-		if err := c.RestartNode(victimID); err != nil {
+		if err := c.RestartNodeAfterDataLoss(victimID); err != nil {
 			t.Fatalf("failed to restart node %d: %v", victimID, err)
 		}
 	}
 
-	if err := c.WaitForApplied(targetApplied, 20*time.Second); err != nil {
+	if err := c.WaitForApplied(targetApplied, 15*time.Second); err != nil {
 		t.Fatalf("nodes failed to catch up: %v", err)
 	}
 

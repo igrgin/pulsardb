@@ -20,7 +20,18 @@ message GetReadIndexResponse {
   uint64 read_index = 1;
 }
 
+message JoinRequest {
+  uint64 node_id = 1;
+  string raft_addr = 2;
+}
+
+message JoinResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
 service RaftTransportService {
   rpc SendRaftMessage(RaftMessage) returns (RaftMessageResponse);
   rpc GetReadIndex(GetReadIndexRequest) returns (GetReadIndexResponse);
+  rpc RequestJoinCluster(JoinRequest) returns (JoinResponse);
 }

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	snapshotpb "pulsardb/internal/raft/gen"
-	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/command"
 )
 
 func FromCommandProto(v *commandeventspb.CommandEventValue) any {

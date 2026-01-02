@@ -30,7 +30,6 @@ func NewServer(addr string) *Server {
 }
 
 func (s *Server) Start() error {
-	slog.Info("metrics server starting", "addr", s.httpServer.Addr)
 	go func() {
 		if err := s.httpServer.ListenAndServe(); err != http.ErrServerClosed {
 			slog.Error("metrics server error", "error", err)

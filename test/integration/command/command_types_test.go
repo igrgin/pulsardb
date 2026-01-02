@@ -2,7 +2,7 @@ package integration
 
 import (
 	"context"
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 	"pulsardb/test/integration/helper"
 	"testing"
 	"time"

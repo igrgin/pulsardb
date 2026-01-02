@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"pulsardb/convert"
 	"pulsardb/internal/metrics"
-
 	snapshotpb "pulsardb/internal/raft/gen"
 
 	"google.golang.org/protobuf/proto"
@@ -19,14 +18,17 @@ func NewService() *Service {
 }
 
 func (s *Service) Get(key string) (any, bool) {
+	metrics.StorageOperationsTotal.WithLabelValues("get").Inc()
 	return s.store.Get(key)
 }
 
 func (s *Service) Set(key string, value any) {
+	metrics.StorageOperationsTotal.WithLabelValues("set").Inc()
 	s.store.Set(key, value)
 }
 
 func (s *Service) Delete(key string) {
+	metrics.StorageOperationsTotal.WithLabelValues("delete").Inc()
 	s.store.Delete(key)
 }
 
@@ -35,9 +37,6 @@ func (s *Service) Len() int {
 }
 
 func (s *Service) Snapshot() ([]byte, error) {
-	s.store.mu.RLock()
-	defer s.store.mu.RUnlock()
-
 	data := s.store.Data()
 
 	snap := &snapshotpb.KVSnapshot{
@@ -60,7 +59,6 @@ func (s *Service) Snapshot() ([]byte, error) {
 		return nil, err
 	}
 
-	metrics.StorageSnapshotSize.Set(float64(len(bytes)))
 	return bytes, nil
 }
 
@@ -69,9 +67,6 @@ func (s *Service) Restore(data []byte) error {
 	if err := proto.Unmarshal(data, &snap); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
-
-	s.store.mu.Lock()
-	defer s.store.mu.Unlock()
 
 	newData := make(map[string]any, len(snap.Entries))
 	for _, entry := range snap.Entries {

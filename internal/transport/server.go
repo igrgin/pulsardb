@@ -7,7 +7,7 @@ import (
 	"pulsardb/internal/configuration"
 	"pulsardb/internal/metrics"
 
-	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/command"
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
 	"pulsardb/internal/transport/handler"
 

@@ -46,6 +46,7 @@ enum ErrorCode {
   NOT_LEADER = 3;
   NO_QUORUM = 4;
   TIMEOUT = 5;
+  SHUTTING_DOWN = 6;
 }
 
 message BatchedCommands {

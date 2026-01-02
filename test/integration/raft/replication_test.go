@@ -3,12 +3,11 @@ package integration
 import (
 	"context"
 	"fmt"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 	"pulsardb/test/integration/helper"
 	"sync"
 	"testing"
 	"time"
-
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
 )
 
 func TestBasicSetOperation(t *testing.T) {
@@ -29,7 +28,7 @@ func TestBasicSetOperation(t *testing.T) {
 
 	for id := uint64(1); id <= 3; id++ {
 		node := c.GetNode(id)
-		val, exists := node.StateMachine.Get("test-key")
+		val, exists := node.StorageService.Get("test-key")
 		if !exists {
 			t.Errorf("node %d: key not found", id)
 			continue
@@ -64,7 +63,7 @@ func TestBasicDeleteOperation(t *testing.T) {
 
 	for id := uint64(1); id <= 3; id++ {
 		node := c.GetNode(id)
-		_, exists := node.StateMachine.Get("delete-key")
+		_, exists := node.StorageService.Get("delete-key")
 		if exists {
 			t.Errorf("node %d: key should be deleted", id)
 		}
@@ -117,7 +116,7 @@ func TestConcurrentWrites(t *testing.T) {
 		key := fmt.Sprintf("key-%d", i)
 		expectedValue := fmt.Sprintf("value-%d", i)
 
-		val, exists := leader.StateMachine.Get(key)
+		val, exists := leader.StorageService.Get(key)
 		if !exists {
 			t.Errorf("key %s not found", key)
 			continue
@@ -169,7 +168,7 @@ func TestWriteWhenNoLeader(t *testing.T) {
 
 	time.Sleep(3 * time.Second)
 
-	_, exists := node.StateMachine.Get("no-leader-key")
+	_, exists := node.StorageService.Get("no-leader-key")
 	if exists {
 		t.Log("Note: value was committed - this might indicate quorum was somehow achieved")
 	}

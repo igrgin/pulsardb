@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"pulsardb/internal/raft"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 
 	"pulsardb/internal/command"
-	"pulsardb/internal/transport/gen/commandevents"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -56,6 +57,8 @@ func ToGRPCError(err error) error {
 		return status.Errorf(codes.NotFound, "%v", err)
 	case errors.Is(err, command.ErrNotLeader), errors.Is(err, command.ErrNoLeader):
 		return status.Error(codes.Unavailable, "not leader")
+	case errors.Is(err, raft.ErrShuttingDown):
+		return status.Error(codes.Unavailable, "server is shutting down")
 	default:
 		return status.Error(codes.Internal, "internal error")
 	}

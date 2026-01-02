@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"pulsardb/internal/metrics"
 	"sync"
+	"time"
 
 	"github.com/tidwall/wal"
 	"go.etcd.io/etcd/pkg/v3/pbutil"
@@ -24,10 +26,11 @@ const (
 )
 
 const (
-	snapshotFolder    = "snapshot"
-	walFolder         = "wal"
-	clusterMarkerFile = "cluster.id"
+	snapshotFolder = "snapshot"
+	walFolder      = "wal"
 )
+
+var snapshotNotFound = errors.New("snapshot not found")
 
 type Storage struct {
 	mu sync.Mutex
@@ -104,6 +107,7 @@ func (s *Storage) replay() (uint64, error) {
 	var allEntries []raftpb.Entry
 	var lastValidSnapMeta *raftpb.SnapshotMetadata
 	var lastValidSnapData []byte
+	var lastMissingSnapIndex uint64
 
 	for idx := first; idx <= last; idx++ {
 		logData, err := s.log.Read(idx)
@@ -144,12 +148,14 @@ func (s *Storage) replay() (uint64, error) {
 				*lastValidSnapMeta = snapMeta
 				lastValidSnapData = snapData
 				s.confState = snapMeta.ConfState
+				lastMissingSnapIndex = 0
 				slog.Debug("found valid snapshot", "index", snapMeta.Index)
 			} else {
 				slog.Warn("snapshot data file missing, skipping",
 					"index", snapMeta.Index,
 					"error", err,
 				)
+				lastMissingSnapIndex = snapMeta.Index
 			}
 		}
 
@@ -184,9 +190,33 @@ func (s *Storage) replay() (uint64, error) {
 	}
 
 	if len(entries) > 0 {
-		if err := s.ms.Append(entries); err != nil {
-			return 0, fmt.Errorf("append entries: %w", err)
+		firstEntryIndex := entries[0].Index
+		expectedFirstIndex := snapIndex + 1
+
+		if firstEntryIndex > expectedFirstIndex {
+			if lastMissingSnapIndex > 0 && lastMissingSnapIndex >= snapIndex {
+				return 0, fmt.Errorf(
+					"unrecoverable state: snapshot at index %d is missing and WAL entries "+
+						"start at %d (expected %d). The snapshot data file was likely deleted. "+
+						"Either restore the snapshot file or reinitialize this node from scratch",
+					lastMissingSnapIndex,
+					firstEntryIndex,
+					expectedFirstIndex,
+				)
+			}
+
+			return 0, fmt.Errorf(
+				"unrecoverable state: gap in WAL entries. Last snapshot at %d, "+
+					"but first entry is at %d (expected %d). WAL may be corrupted",
+				snapIndex,
+				firstEntryIndex,
+				expectedFirstIndex,
+			)
 		}
+	}
+
+	if err := s.ms.Append(entries); err != nil {
+		return 0, fmt.Errorf("append entries: %w", err)
 	}
 
 	if !etcdraft.IsEmptyHardState(s.hs) {
@@ -195,14 +225,21 @@ func (s *Storage) replay() (uint64, error) {
 		}
 	}
 
-	if etcdraft.IsEmptySnap(s.snap) && len(s.confState.Voters) > 0 && s.hs.Commit > 0 {
-		_, err := s.ms.CreateSnapshot(s.hs.Commit, &s.confState, nil)
+	if len(s.confState.Voters) > 0 && s.hs.Commit > 0 {
+
+		var snapData []byte
+		if !etcdraft.IsEmptySnap(s.snap) {
+			snapData = s.snap.Data
+		}
+
+		_, err := s.ms.CreateSnapshot(s.hs.Commit, &s.confState, snapData)
 		if err != nil && !errors.Is(err, etcdraft.ErrSnapOutOfDate) {
-			return 0, fmt.Errorf("create confstate snapshot: %w", err)
+			return 0, fmt.Errorf("inject confstate snapshot: %w", err)
 		}
 		slog.Debug("injected confState into MemoryStorage",
 			"commit", s.hs.Commit,
 			"voters", s.confState.Voters,
+			"learners", s.confState.Learners,
 		)
 	}
 
@@ -222,17 +259,6 @@ func (s *Storage) replay() (uint64, error) {
 	)
 
 	return applied, nil
-}
-
-func (s *Storage) MarkClusterInitialized() error {
-	path := filepath.Join(s.dir, clusterMarkerFile)
-	return os.WriteFile(path, []byte("1"), 0o640)
-}
-
-func (s *Storage) WasPreviouslyInitialized() bool {
-	path := filepath.Join(s.dir, clusterMarkerFile)
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func (s *Storage) Close() error {
@@ -279,9 +305,11 @@ func (s *Storage) SaveReady(rd etcdraft.Ready) error {
 	}
 
 	if rd.MustSync {
+		syncStart := time.Now()
 		if err := s.log.Sync(); err != nil {
 			return fmt.Errorf("wal.Sync: %w", err)
 		}
+		metrics.WALSyncDuration.WithLabelValues("entry").Observe(time.Since(syncStart).Seconds())
 	}
 
 	return nil
@@ -298,9 +326,11 @@ func (s *Storage) applyReceivedSnapshotLocked(snap raftpb.Snapshot) error {
 		return fmt.Errorf("append snapshot record: %w", err)
 	}
 
+	syncStart := time.Now()
 	if err := s.log.Sync(); err != nil {
 		return fmt.Errorf("wal.Sync: %w", err)
 	}
+	metrics.WALSyncDuration.WithLabelValues("snapshot_receive").Observe(time.Since(syncStart).Seconds())
 
 	if err := s.ms.ApplySnapshot(snap); err != nil &&
 		!errors.Is(err, etcdraft.ErrSnapOutOfDate) {
@@ -332,9 +362,11 @@ func (s *Storage) SaveConfState(cs raftpb.ConfState) error {
 		return fmt.Errorf("append confState record: %w", err)
 	}
 
+	syncStart := time.Now()
 	if err := s.log.Sync(); err != nil {
 		return fmt.Errorf("wal.Sync: %w", err)
 	}
+	metrics.WALSyncDuration.WithLabelValues("snapshot_receive").Observe(time.Since(syncStart).Seconds())
 
 	s.confState = cs
 
@@ -372,9 +404,11 @@ func (s *Storage) SaveSnapshot(snap raftpb.Snapshot) error {
 		return fmt.Errorf("append snapshot record: %w", err)
 	}
 
+	syncStart := time.Now()
 	if err := s.log.Sync(); err != nil {
 		return fmt.Errorf("wal.Sync: %w", err)
 	}
+	metrics.WALSyncDuration.WithLabelValues("snapshot_receive").Observe(time.Since(syncStart).Seconds())
 
 	s.snap = snap
 	s.confState = snap.Metadata.ConfState

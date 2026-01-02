@@ -3,12 +3,11 @@ package integration
 import (
 	"context"
 	"fmt"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 	integration2 "pulsardb/test/integration/helper"
 	"sync"
 	"testing"
 	"time"
-
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"

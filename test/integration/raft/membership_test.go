@@ -1,6 +1,3 @@
-//go:build disabled
-// +build disabled
-
 package integration
 
 import (
@@ -227,7 +224,16 @@ func TestRemoveLeaderFromCluster(t *testing.T) {
 }
 
 func TestAddLearnerNode(t *testing.T) {
-	c := helper.NewCluster(t, nil, "info")
+
+	cfg := &helper.TestClusterConfig{
+		TickInterval:           100 * time.Millisecond,
+		ElectionTick:           10,
+		BatchSize:              10,
+		BatchWait:              2,
+		PromotionThreshold:     10000,
+		PromotionCheckInterval: 1 * time.Minute,
+	}
+	c := helper.NewCluster(t, cfg, "info")
 
 	c.StartNodes(3, 60)
 
@@ -406,7 +412,7 @@ func TestRemoveLearnerFromCluster(t *testing.T) {
 }
 
 func TestAddRemoveMultipleNodes(t *testing.T) {
-	c := helper.NewCluster(t, nil, "debug")
+	c := helper.NewCluster(t, nil, "info")
 
 	c.StartNodes(3, 60)
 
@@ -467,7 +473,7 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 		}
 	}
 
-	targetIndex := c.GetClusterAppliedIndex()
+	targetIndex := c.GetLeader().RaftService.LastApplied()
 	if err := c.WaitForApplied(targetIndex, 30*time.Second); err != nil {
 		t.Fatalf("convergence failed before removals: %v", err)
 	}

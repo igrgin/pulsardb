@@ -6,6 +6,7 @@ metrics:
   port: 9094
 
 raft:
+  #join: true
   node-id: 5
   raft-peers:
     1: "127.0.0.1:50052"
@@ -14,11 +15,4 @@ raft:
     4: "127.0.0.1:50058"
     #6: "127.0.0.1:50062"
     #7: "127.0.0.1:50064"
-  client-peers:
-    1: "127.0.0.1:50051"
-    2: "127.0.0.1:50053"
-    3: "127.0.0.1:50055"
-    4: "127.0.0.1:50057"
-    #6: "127.0.0.1:50061"
-    #7: "127.0.0.1:50063"
-  storage-dir: "internal/kv-storage/local5"
+  storage-dir: "internal/node-storage/local5"

@@ -197,6 +197,110 @@ func (x *GetReadIndexResponse) GetReadIndex() uint64 {
 	return 0
 }
 
+type JoinRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	RaftAddr      string                 `protobuf:"bytes,2,opt,name=raft_addr,json=raftAddr,proto3" json:"raft_addr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JoinRequest) Reset() {
+	*x = JoinRequest{}
+	mi := &file_raft_transport_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinRequest) ProtoMessage() {}
+
+func (x *JoinRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_raft_transport_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinRequest.ProtoReflect.Descriptor instead.
+func (*JoinRequest) Descriptor() ([]byte, []int) {
+	return file_raft_transport_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *JoinRequest) GetNodeId() uint64 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *JoinRequest) GetRaftAddr() string {
+	if x != nil {
+		return x.RaftAddr
+	}
+	return ""
+}
+
+type JoinResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JoinResponse) Reset() {
+	*x = JoinResponse{}
+	mi := &file_raft_transport_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinResponse) ProtoMessage() {}
+
+func (x *JoinResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_raft_transport_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinResponse.ProtoReflect.Descriptor instead.
+func (*JoinResponse) Descriptor() ([]byte, []int) {
+	return file_raft_transport_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *JoinResponse) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *JoinResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_raft_transport_proto protoreflect.FileDescriptor
 
 const file_raft_transport_proto_rawDesc = "" +
@@ -210,10 +314,17 @@ const file_raft_transport_proto_rawDesc = "" +
 	"\tfrom_node\x18\x01 \x01(\x04R\bfromNode\"5\n" +
 	"\x14GetReadIndexResponse\x12\x1d\n" +
 	"\n" +
-	"read_index\x18\x01 \x01(\x04R\treadIndex2\x9e\x01\n" +
+	"read_index\x18\x01 \x01(\x04R\treadIndex\"C\n" +
+	"\vJoinRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1b\n" +
+	"\traft_addr\x18\x02 \x01(\tR\braftAddr\"D\n" +
+	"\fJoinResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage2\xdb\x01\n" +
 	"\x14RaftTransportService\x12?\n" +
 	"\x0fSendRaftMessage\x12\x11.raft.RaftMessage\x1a\x19.raft.RaftMessageResponse\x12E\n" +
-	"\fGetReadIndex\x12\x19.raft.GetReadIndexRequest\x1a\x1a.raft.GetReadIndexResponseBEZCgithub.com/you/pulsardb/internal/transport/gen/raft;rafttransportpbb\x06proto3"
+	"\fGetReadIndex\x12\x19.raft.GetReadIndexRequest\x1a\x1a.raft.GetReadIndexResponse\x12;\n" +
+	"\x12RequestJoinCluster\x12\x11.raft.JoinRequest\x1a\x12.raft.JoinResponseBEZCgithub.com/you/pulsardb/internal/transport/gen/raft;rafttransportpbb\x06proto3"
 
 var (
 	file_raft_transport_proto_rawDescOnce sync.Once
@@ -227,20 +338,24 @@ func file_raft_transport_proto_rawDescGZIP() []byte {
 	return file_raft_transport_proto_rawDescData
 }
 
-var file_raft_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_raft_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_raft_transport_proto_goTypes = []any{
 	(*RaftMessage)(nil),          // 0: raft.RaftMessage
 	(*RaftMessageResponse)(nil),  // 1: raft.RaftMessageResponse
 	(*GetReadIndexRequest)(nil),  // 2: raft.GetReadIndexRequest
 	(*GetReadIndexResponse)(nil), // 3: raft.GetReadIndexResponse
+	(*JoinRequest)(nil),          // 4: raft.JoinRequest
+	(*JoinResponse)(nil),         // 5: raft.JoinResponse
 }
 var file_raft_transport_proto_depIdxs = []int32{
 	0, // 0: raft.RaftTransportService.SendRaftMessage:input_type -> raft.RaftMessage
 	2, // 1: raft.RaftTransportService.GetReadIndex:input_type -> raft.GetReadIndexRequest
-	1, // 2: raft.RaftTransportService.SendRaftMessage:output_type -> raft.RaftMessageResponse
-	3, // 3: raft.RaftTransportService.GetReadIndex:output_type -> raft.GetReadIndexResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	4, // 2: raft.RaftTransportService.RequestJoinCluster:input_type -> raft.JoinRequest
+	1, // 3: raft.RaftTransportService.SendRaftMessage:output_type -> raft.RaftMessageResponse
+	3, // 4: raft.RaftTransportService.GetReadIndex:output_type -> raft.GetReadIndexResponse
+	5, // 5: raft.RaftTransportService.RequestJoinCluster:output_type -> raft.JoinResponse
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -257,7 +372,7 @@ func file_raft_transport_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_raft_transport_proto_rawDesc), len(file_raft_transport_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

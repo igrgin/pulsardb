@@ -53,26 +53,28 @@ type WriteAheadLogProperties struct {
 }
 
 type RaftConfigurationProperties struct {
-	NodeID         uint64                  `yaml:"node-id"`
-	RaftPeers      map[uint64]string       `yaml:"raft-peers"`
-	ClientPeers    map[uint64]string       `yaml:"client-peers"`
-	RaftPeersRaw   string                  `yaml:"raft-peers-env"`   // "2=ip:port,3=ip:port"
-	ClientPeersRaw string                  `yaml:"client-peers-env"` // "2=ip:port,3=ip:port"
-	StorageDir     string                  `yaml:"storage-dir"`
-	TickInterval   time.Duration           `yaml:"tick-interval"`
-	Timeout        uint64                  `yaml:"timeout"`
-	SnapCount      uint64                  `yaml:"snap-count"`
-	BatchSize      int                     `yaml:"batch-size"`
-	BatchMaxWait   time.Duration           `yaml:"batch-max-wait"`
-	ElectionTick   int                     `yaml:"election-tick"`
-	HeartbeatTick  int                     `yaml:"heartbeat-tick"`
-	MaxSizePerMsg  uint64                  `yaml:"max-size-per-msg"`
-	MaxInflight    int                     `yaml:"max-inflight"`
-	SendQueueSize  int                     `yaml:"send-queue-size"`
-	StepInboxSize  uint64                  `yaml:"step-inbox-size"`
-	Join           bool                    `yaml:"join"`
-	Etcd           EtcdConfigProperties    `yaml:"etcd"`
-	Wal            WriteAheadLogProperties `yaml:"wal"`
+	NodeID                 uint64                  `yaml:"node-id"`
+	RaftPeers              map[uint64]string       `yaml:"raft-peers"`
+	RaftPeersRaw           string                  `yaml:"raft-peers-env"` // "2=ip:port,3=ip:port"
+	StorageDir             string                  `yaml:"storage-dir"`
+	TickInterval           time.Duration           `yaml:"tick-interval"`
+	Timeout                uint64                  `yaml:"timeout"`
+	SnapCount              uint64                  `yaml:"snap-count"`
+	BatchSize              int                     `yaml:"batch-size"`
+	BatchMaxWait           time.Duration           `yaml:"batch-max-wait"`
+	ElectionTick           int                     `yaml:"election-tick"`
+	HeartbeatTick          int                     `yaml:"heartbeat-tick"`
+	MaxSizePerMsg          uint64                  `yaml:"max-size-per-msg"`
+	MaxInflight            int                     `yaml:"max-inflight"`
+	SendQueueSize          int                     `yaml:"send-queue-size"`
+	StepInboxSize          uint64                  `yaml:"step-inbox-size"`
+	Etcd                   EtcdConfigProperties    `yaml:"etcd"`
+	Wal                    WriteAheadLogProperties `yaml:"wal"`
+	Join                   bool                    `yaml:"join"`
+	PromotionThreshold     uint64                  `yaml:"promotion-threshold"`
+	PromotionCheckInterval time.Duration           `yaml:"promotion-check-interval"`
+	ServiceDrainTimeout    time.Duration           `yaml:"service-drain-timeout"`
+	NodeDrainTimeout       time.Duration           `yaml:"node-drain-timeout"`
 }
 
 type MetricsConfigurationProperties struct {
@@ -124,14 +126,8 @@ func (c *RaftConfigurationProperties) MergePeersFromEnv() {
 	if c.RaftPeers == nil {
 		c.RaftPeers = make(map[uint64]string)
 	}
-	if c.ClientPeers == nil {
-		c.ClientPeers = make(map[uint64]string)
-	}
 
 	for id, addr := range ParsePeers(c.RaftPeersRaw) {
 		c.RaftPeers[id] = addr
-	}
-	for id, addr := range ParsePeers(c.ClientPeersRaw) {
-		c.ClientPeers[id] = addr
 	}
 }

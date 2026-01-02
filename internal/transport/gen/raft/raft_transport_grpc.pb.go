@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RaftTransportService_SendRaftMessage_FullMethodName = "/raft.RaftTransportService/SendRaftMessage"
-	RaftTransportService_GetReadIndex_FullMethodName    = "/raft.RaftTransportService/GetReadIndex"
+	RaftTransportService_SendRaftMessage_FullMethodName    = "/raft.RaftTransportService/SendRaftMessage"
+	RaftTransportService_GetReadIndex_FullMethodName       = "/raft.RaftTransportService/GetReadIndex"
+	RaftTransportService_RequestJoinCluster_FullMethodName = "/raft.RaftTransportService/RequestJoinCluster"
 )
 
 // RaftTransportServiceClient is the client API for RaftTransportService service.
@@ -29,6 +30,7 @@ const (
 type RaftTransportServiceClient interface {
 	SendRaftMessage(ctx context.Context, in *RaftMessage, opts ...grpc.CallOption) (*RaftMessageResponse, error)
 	GetReadIndex(ctx context.Context, in *GetReadIndexRequest, opts ...grpc.CallOption) (*GetReadIndexResponse, error)
+	RequestJoinCluster(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
 }
 
 type raftTransportServiceClient struct {
@@ -59,12 +61,23 @@ func (c *raftTransportServiceClient) GetReadIndex(ctx context.Context, in *GetRe
 	return out, nil
 }
 
+func (c *raftTransportServiceClient) RequestJoinCluster(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(JoinResponse)
+	err := c.cc.Invoke(ctx, RaftTransportService_RequestJoinCluster_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RaftTransportServiceServer is the server API for RaftTransportService service.
 // All implementations must embed UnimplementedRaftTransportServiceServer
 // for forward compatibility.
 type RaftTransportServiceServer interface {
 	SendRaftMessage(context.Context, *RaftMessage) (*RaftMessageResponse, error)
 	GetReadIndex(context.Context, *GetReadIndexRequest) (*GetReadIndexResponse, error)
+	RequestJoinCluster(context.Context, *JoinRequest) (*JoinResponse, error)
 	mustEmbedUnimplementedRaftTransportServiceServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedRaftTransportServiceServer) SendRaftMessage(context.Context, 
 }
 func (UnimplementedRaftTransportServiceServer) GetReadIndex(context.Context, *GetReadIndexRequest) (*GetReadIndexResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetReadIndex not implemented")
+}
+func (UnimplementedRaftTransportServiceServer) RequestJoinCluster(context.Context, *JoinRequest) (*JoinResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestJoinCluster not implemented")
 }
 func (UnimplementedRaftTransportServiceServer) mustEmbedUnimplementedRaftTransportServiceServer() {}
 func (UnimplementedRaftTransportServiceServer) testEmbeddedByValue()                              {}
@@ -138,6 +154,24 @@ func _RaftTransportService_GetReadIndex_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RaftTransportService_RequestJoinCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftTransportServiceServer).RequestJoinCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftTransportService_RequestJoinCluster_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftTransportServiceServer).RequestJoinCluster(ctx, req.(*JoinRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RaftTransportService_ServiceDesc is the grpc.ServiceDesc for RaftTransportService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +186,10 @@ var RaftTransportService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetReadIndex",
 			Handler:    _RaftTransportService_GetReadIndex_Handler,
+		},
+		{
+			MethodName: "RequestJoinCluster",
+			Handler:    _RaftTransportService_RequestJoinCluster_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

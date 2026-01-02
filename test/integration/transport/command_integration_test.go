@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"

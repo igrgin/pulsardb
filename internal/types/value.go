@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 	snapshotpb "pulsardb/internal/raft/gen"
-	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/command"
 )
 
 func ValueFromProto(v *commandeventspb.CommandEventValue) any {

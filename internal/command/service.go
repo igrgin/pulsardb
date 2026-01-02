@@ -7,7 +7,7 @@ import (
 	"pulsardb/convert"
 	"pulsardb/internal/domain"
 	"pulsardb/internal/metrics"
-	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/command"
 	"sync"
 	"time"
 )
@@ -18,18 +18,18 @@ type BatchConfig struct {
 }
 
 type Service struct {
-	store    domain.Store
-	proposer domain.Consensus
-	batcher  *Batcher
-	pending  map[uint64]chan *commandeventspb.CommandEventResponse
-	mu       sync.RWMutex
+	storageService domain.Store
+	proposer       domain.Consensus
+	batcher        *Batcher
+	pending        map[uint64]chan *commandeventspb.CommandEventResponse
+	mu             sync.RWMutex
 }
 
-func NewService(store domain.Store, proposer domain.Consensus, batchCfg BatchConfig) *Service {
+func NewService(storageService domain.Store, proposer domain.Consensus, batchCfg BatchConfig) *Service {
 	s := &Service{
-		store:    store,
-		proposer: proposer,
-		pending:  make(map[uint64]chan *commandeventspb.CommandEventResponse),
+		storageService: storageService,
+		proposer:       proposer,
+		pending:        make(map[uint64]chan *commandeventspb.CommandEventResponse),
 	}
 	s.batcher = NewBatcher(proposer, s, batchCfg)
 	slog.Info("command service initialized")
@@ -37,7 +37,6 @@ func NewService(store domain.Store, proposer domain.Consensus, batchCfg BatchCon
 }
 
 func (s *Service) Stop() {
-	slog.Info("command service stopping")
 	s.batcher.Stop()
 	slog.Info("command service stopped")
 }
@@ -97,7 +96,7 @@ func (s *Service) read(
 		return nil, err
 	}
 
-	val, ok := s.store.Get(req.Key)
+	val, ok := s.storageService.Get(req.Key)
 	if !ok {
 		slog.Debug("key not found", "eventId", req.EventId, "key", req.Key)
 		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, req.Key)
