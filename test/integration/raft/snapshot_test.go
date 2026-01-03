@@ -93,7 +93,7 @@ func TestSnapshotRestorationOnRestart(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	for key, expectedValue := range testData {
-		val, exists := node.StateMachine.Get(key)
+		val, exists := node.StorageService.Get(key)
 		if !exists {
 			t.Logf("key %s not found in state machine (might be in storage)", key)
 			continue
@@ -153,7 +153,7 @@ func TestFollowerCatchUpViaSnapshot(t *testing.T) {
 
 	for i := 90; i < 100; i++ {
 		key := fmt.Sprintf("catch-up-key-%d", i)
-		val, exists := follower.StateMachine.Get(key)
+		val, exists := follower.StorageService.Get(key)
 		var strVal string
 		if exists {
 			strVal, _ = helper.AsString(val)

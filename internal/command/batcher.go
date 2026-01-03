@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"pulsardb/internal/domain"
 	"pulsardb/internal/metrics"
-	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/command"
 	"sync"
 	"time"
 

@@ -12,7 +12,7 @@ import (
 type nodeConfig struct {
 	storage      *Storage
 	raftNode     etcdraft.Node
-	AppliedIndex uint64
+	appliedIndex uint64
 }
 
 func newNodeConfig(rc *configuration.RaftConfigurationProperties, localAddr string) (*nodeConfig, error) {
@@ -56,7 +56,11 @@ func newNodeConfig(rc *configuration.RaftConfigurationProperties, localAddr stri
 		Applied:                   appliedIndex,
 	}
 
-	peersList := buildPeersList(rc.NodeID, localAddr, rc.RaftPeers)
+	var peersList []etcdraft.Peer
+	if !rc.Join {
+		peersList = buildPeersList(rc.NodeID, localAddr, rc.RaftPeers)
+	}
+
 	raftNode, err := startOrRestartNode(c, raftStore, peersList, rc.Join)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start raft node: %w", err)
@@ -65,11 +69,11 @@ func newNodeConfig(rc *configuration.RaftConfigurationProperties, localAddr stri
 	return &nodeConfig{
 		storage:      raftStore,
 		raftNode:     raftNode,
-		AppliedIndex: appliedIndex,
+		appliedIndex: appliedIndex,
 	}, nil
 }
 
-func startOrRestartNode(c *etcdraft.Config, rs *Storage, peersList []etcdraft.Peer, join bool) (etcdraft.Node, error) {
+func startOrRestartNode(c *etcdraft.Config, rs *Storage, peersList []etcdraft.Peer, isJoining bool) (etcdraft.Node, error) {
 	isEmpty, err := rs.IsStorageEmpty()
 	if err != nil {
 		return nil, fmt.Errorf("failed to check storageService state: %w", err)
@@ -81,36 +85,23 @@ func startOrRestartNode(c *etcdraft.Config, rs *Storage, peersList []etcdraft.Pe
 		return etcdraft.RestartNode(c), nil
 	}
 
-	if join {
-		slog.Info("joining cluster - starting with empty state, waiting for snapshot",
+	if len(peersList) > 0 {
+		slog.Info("bootstrapping cluster",
 			"node_id", c.ID,
+			"peers", formatPeers(peersList),
 		)
-
-		if err := rs.MarkClusterInitialized(); err != nil {
-			slog.Warn("failed to write cluster marker", "error", err)
-		}
-
-		return etcdraft.RestartNode(c), nil
+		return etcdraft.StartNode(c, peersList), nil
 	}
 
-	if rs.WasPreviouslyInitialized() {
-
-		slog.Info("rejoining cluster - starting with empty state",
+	if isJoining {
+		slog.Info("New node joining existing cluster",
 			"node_id", c.ID,
 		)
 		return etcdraft.RestartNode(c), nil
 	}
 
-	slog.Info("starting cluster",
-		"node_id", c.ID,
-		"peers", formatPeers(peersList),
-	)
-
-	if err := rs.MarkClusterInitialized(); err != nil {
-		slog.Warn("failed to write cluster marker", "error", err)
-	}
-
-	return etcdraft.StartNode(c, peersList), nil
+	slog.Info("starting single node cluster", "node_id", c.ID)
+	return etcdraft.StartNode(c, []etcdraft.Peer{{ID: c.ID}}), nil
 }
 
 func buildPeersList(localID uint64, localAddr string, peers map[uint64]string) []etcdraft.Peer {

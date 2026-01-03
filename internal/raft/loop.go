@@ -22,7 +22,27 @@ func (s *Service) startLoop() {
 		s.collectMetrics()
 	}()
 
+	s.stoppedWg.Add(1)
+	go func() {
+		defer s.stoppedWg.Done()
+		s.runPromotionChecker()
+	}()
+
 	slog.Info("raft loop started", "node_id", s.Node.Id)
+}
+
+func (s *Service) runPromotionChecker() {
+	ticker := time.NewTicker(s.promotionCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			s.maybePromoteLearners()
+		}
+	}
 }
 
 func (s *Service) collectMetrics() {
@@ -101,9 +121,12 @@ func (s *Service) processReady(rd etcdraft.Ready) error {
 		"hasSnapshot", !etcdraft.IsEmptySnap(rd.Snapshot),
 	)
 
+	start := time.Now()
 	if err := s.Node.storage.SaveReady(rd); err != nil {
 		return err
 	}
+	metrics.WALWriteDuration.Observe(time.Since(start).Seconds())
+	metrics.WALWritesTotal.Add(float64(len(rd.Entries)))
 
 	s.sendMessages(rd.Messages)
 

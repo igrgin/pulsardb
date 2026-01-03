@@ -42,6 +42,8 @@ func main() {
 		"raft_addr", cfg.Transport.RaftAddr(),
 	)
 
+	nodeID := configProvider.GetRaft().NodeID
+	metrics.Init(nodeID)
 	var metricsServer *metrics.Server
 	if cfg.Metrics.Enabled {
 		metricsServer = metrics.NewServer(cfg.Metrics.Addr())
@@ -65,7 +67,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	raftService := raft.NewService(raftNode, storeService, stateMachine, configProvider.GetRaft())
+	localAddress := configProvider.GetTransport().Address
+	raftService := raft.NewService(raftNode, storeService, stateMachine, configProvider.GetRaft(),
+		net.JoinHostPort(localAddress, configProvider.GetTransport().RaftPort))
 
 	commandService := command.NewService(storeService, raftService, command.BatchConfig{
 		MaxSize: cfg.Raft.BatchSize,

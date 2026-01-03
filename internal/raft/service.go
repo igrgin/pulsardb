@@ -9,7 +9,7 @@ import (
 	"pulsardb/internal/domain"
 	"pulsardb/internal/metrics"
 	"pulsardb/internal/storage"
-	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/command"
 	"pulsardb/internal/transport/gen/raft"
 	"pulsardb/internal/types"
 	"sync"
@@ -18,8 +18,11 @@ import (
 
 	etcdraft "go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+	"go.etcd.io/raft/v3/tracker"
 	"google.golang.org/protobuf/proto"
 )
+
+var ErrShuttingDown = errors.New("shutdown in progress")
 
 type StateMachine interface {
 	Apply(data []byte) (response []byte, err error)
@@ -49,42 +52,53 @@ type readIndexResp struct {
 }
 
 type Service struct {
-	Node              *Node
-	StoreService      *storage.Service
-	StateMachine      domain.StateMachine
-	nextReqID         uint64
-	readWaiters       map[string]*readWaiter
-	readMu            sync.Mutex
-	lastApplied       uint64
-	appliedMu         sync.RWMutex
-	stopCh            chan int
-	stoppedWg         sync.WaitGroup
-	tickInterval      time.Duration
-	snapCount         uint64
-	stepInbox         chan raftStepReq
-	readIndexInbox    chan readIndexReq
-	sendPoolQueueSize int
+	Node                   *Node
+	StoreService           *storage.Service
+	StateMachine           domain.StateMachine
+	nextReqID              uint64
+	readWaiters            map[string]*readWaiter
+	readMu                 sync.Mutex
+	lastApplied            uint64
+	appliedMu              sync.RWMutex
+	stopCh                 chan int
+	stoppedWg              sync.WaitGroup
+	tickInterval           time.Duration
+	snapCount              uint64
+	stepInbox              chan raftStepReq
+	readIndexInbox         chan readIndexReq
+	sendPoolQueueSize      int
+	promotionThreshold     uint64
+	promotionCheckInterval time.Duration
+	localRaftAddr          string
+	shuttingDown           atomic.Bool
+	drainTimeout           time.Duration
+	inFlight               sync.WaitGroup
 }
 
 func NewService(node *Node,
 	storageService *storage.Service,
 	sm domain.StateMachine,
-	cfg *configuration.RaftConfigurationProperties) *Service {
+	cfg *configuration.RaftConfigurationProperties,
+	localRaftAddr string) *Service {
 	stepSize := 1024
 	readIndexSize := 1024
 
 	s := &Service{
-		Node:              node,
-		StoreService:      storageService,
-		StateMachine:      sm,
-		readWaiters:       make(map[string]*readWaiter),
-		lastApplied:       0,
-		stopCh:            make(chan int),
-		tickInterval:      cfg.TickInterval,
-		snapCount:         cfg.SnapCount,
-		stepInbox:         make(chan raftStepReq, stepSize),
-		readIndexInbox:    make(chan readIndexReq, readIndexSize),
-		sendPoolQueueSize: cfg.SendQueueSize,
+		Node:                   node,
+		StoreService:           storageService,
+		StateMachine:           sm,
+		readWaiters:            make(map[string]*readWaiter),
+		lastApplied:            0,
+		stopCh:                 make(chan int),
+		tickInterval:           cfg.TickInterval,
+		snapCount:              cfg.SnapCount,
+		stepInbox:              make(chan raftStepReq, stepSize),
+		readIndexInbox:         make(chan readIndexReq, readIndexSize),
+		sendPoolQueueSize:      cfg.SendQueueSize,
+		promotionCheckInterval: cfg.PromotionCheckInterval,
+		promotionThreshold:     cfg.PromotionThreshold,
+		localRaftAddr:          localRaftAddr,
+		drainTimeout:           cfg.ServiceDrainTimeout,
 	}
 
 	slog.Info("raft service created",
@@ -94,6 +108,144 @@ func NewService(node *Node,
 	)
 
 	return s
+}
+
+func (s *Service) maybePromoteLearners() {
+	if !s.IsLeader() {
+		return
+	}
+
+	status := s.Node.Status()
+	confState := s.Node.ConfState()
+
+	if len(confState.Learners) == 0 {
+		return
+	}
+
+	for _, learnerID := range confState.Learners {
+		if learnerID == s.Node.Id {
+			continue
+		}
+
+		progress, ok := status.Progress[learnerID]
+		if !ok {
+			slog.Debug("no progress info for learner", "learner_id", learnerID)
+			continue
+		}
+
+		if s.isLearnerReady(progress, status.Commit) {
+			slog.Info("promoting learner to voter",
+				"learner_id", learnerID,
+				"match", progress.Match,
+				"commit", status.Commit,
+				"lag", status.Commit-progress.Match,
+			)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := s.promoteToVoter(ctx, learnerID)
+			cancel()
+
+			if err != nil {
+				slog.Warn("failed to promote learner",
+					"learner_id", learnerID,
+					"error", err,
+				)
+			}
+		} else {
+			slog.Debug("learner not ready for promotion",
+				"learner_id", learnerID,
+				"match", progress.Match,
+				"commit", status.Commit,
+				"state", progress.State.String(),
+			)
+		}
+	}
+}
+
+func (s *Service) isLearnerReady(progress tracker.Progress, commitIndex uint64) bool {
+
+	if progress.State != tracker.StateReplicate {
+		return false
+	}
+
+	if progress.IsPaused() {
+		return false
+	}
+
+	if commitIndex <= s.promotionThreshold {
+		return progress.Match >= commitIndex
+	}
+
+	return progress.Match >= (commitIndex - s.promotionThreshold)
+}
+
+func (s *Service) promoteToVoter(ctx context.Context, nodeID uint64) error {
+	s.Node.mu.RLock()
+	raftAddr := s.Node.raftPeers[nodeID]
+	s.Node.mu.RUnlock()
+
+	cc := raftpb.ConfChange{
+		Type:    raftpb.ConfChangeAddNode,
+		NodeID:  nodeID,
+		Context: encodePeerAddrs(raftAddr),
+	}
+
+	return s.Node.raftNode.ProposeConfChange(ctx, cc)
+}
+
+const peerAddrSeparator = "|"
+
+func encodePeerAddrs(raftAddr string) []byte {
+	return []byte(raftAddr)
+}
+
+func decodePeerAddrs(data []byte) (raftAddr string) {
+	return string(data)
+}
+
+func (s *Service) RequestJoin(ctx context.Context, leaderID uint64, nodeID uint64, raftAddr string) error {
+	client, ok := s.Node.GetLeaderClient(leaderID)
+	if !ok {
+		return fmt.Errorf("no client for leader %d", leaderID)
+	}
+
+	resp, err := client.RequestJoinCluster(ctx, &rafttransportpb.JoinRequest{
+		NodeId:   nodeID,
+		RaftAddr: raftAddr,
+	})
+	if err != nil {
+		return fmt.Errorf("join request failed: %w", err)
+	}
+	if !resp.Accepted {
+		return fmt.Errorf("join rejected: %s", resp.Message)
+	}
+	return nil
+}
+
+func (s *Service) HandleJoinRequest(ctx context.Context, nodeID uint64, raftAddr string) error {
+	if !s.IsLeader() {
+		return ErrNotLeader
+	}
+
+	confState := s.Node.ConfState()
+	for _, v := range confState.Voters {
+		if v == nodeID {
+			slog.Info("node already a voter", "node_id", nodeID)
+			return nil
+		}
+	}
+
+	for _, l := range confState.Learners {
+		if l == nodeID {
+			slog.Info("node already a learner, will be promoted when ready", "node_id", nodeID)
+			return nil
+		}
+	}
+
+	s.Node.AddPeer(nodeID, raftAddr)
+
+	slog.Info("adding node as learner", "node_id", nodeID, "raft_addr", raftAddr)
+	return s.ProposeAddLearnerNode(ctx, nodeID, raftAddr)
 }
 
 func (s *Service) CallRaftStep(ctx context.Context, m raftpb.Message) error {
@@ -156,13 +308,172 @@ func (s *Service) doReadIndex(ctx context.Context) (uint64, error) {
 	}
 }
 
+func (s *Service) acquireInflight() bool {
+	if s.shuttingDown.Load() {
+		return false
+	}
+	s.inFlight.Add(1)
+
+	if s.shuttingDown.Load() {
+		s.inFlight.Done()
+		return false
+	}
+	return true
+}
+
+func (s *Service) releaseInflight() {
+	s.inFlight.Done()
+}
+
 func (s *Service) Stop() {
-	slog.Info("stopping raft service", "node_id", s.Node.Id)
+	slog.Info("initiating graceful shutdown", "node_id", s.Node.Id)
+
+	s.shuttingDown.Store(true)
+
+	if s.IsLeader() {
+		s.tryTransferLeadership()
+	}
+
+	s.waitForInflight()
+
+	s.waitForPendingApplies()
+
+	s.cancelAllReadWaiters()
+
 	close(s.stopCh)
 	s.stoppedWg.Wait()
+
 	s.Node.Stop()
 
 	slog.Info("raft service stopped", "node_id", s.Node.Id)
+}
+
+func (s *Service) waitForPendingApplies() {
+	status := s.Node.Status()
+	target := status.Commit
+
+	if s.LastApplied() >= target {
+		return
+	}
+
+	slog.Debug("waiting for pending applies",
+		"node_id", s.Node.Id,
+		"current", s.LastApplied(),
+		"target", target,
+	)
+
+	deadline := time.Now().Add(s.drainTimeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		if s.LastApplied() >= target {
+			slog.Debug("pending applies completed", "applied", s.LastApplied())
+			return
+		}
+		<-ticker.C
+	}
+
+	slog.Warn("timed out waiting for pending applies",
+		"applied", s.LastApplied(),
+		"target", target,
+	)
+}
+
+func (s *Service) waitForInflight() {
+	done := make(chan struct{})
+	go func() {
+		s.inFlight.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		slog.Debug("all in-flight operations completed", "node_id", s.Node.Id)
+	case <-time.After(s.drainTimeout):
+		slog.Warn("timed out waiting for in-flight operations", "node_id", s.Node.Id)
+	}
+}
+
+func (s *Service) tryTransferLeadership() {
+	status := s.Node.Status()
+	if status.RaftState != etcdraft.StateLeader {
+		return
+	}
+
+	var targetID uint64
+	var maxMatch uint64
+
+	for id, pr := range status.Progress {
+		if id == s.Node.Id {
+			continue
+		}
+		if pr.State == tracker.StateReplicate && pr.Match > maxMatch {
+			maxMatch = pr.Match
+			targetID = id
+		}
+	}
+
+	if targetID == 0 {
+		slog.Warn("no suitable target for leadership transfer", "node_id", s.Node.Id)
+		return
+	}
+
+	slog.Info("transferring leadership",
+		"node_id", s.Node.Id,
+		"target", targetID,
+	)
+
+	s.Node.raftNode.TransferLeadership(context.Background(), s.Node.Id, targetID)
+
+	deadline := time.Now().Add(2 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		<-ticker.C
+		if s.Node.Status().RaftState != etcdraft.StateLeader {
+			slog.Info("leadership transferred", "new_leader", s.Node.Status().Lead)
+			return
+		}
+	}
+
+	slog.Warn("leadership transfer timed out", "node_id", s.Node.Id)
+}
+
+func (s *Service) cancelAllReadWaiters() {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+
+	for key, w := range s.readWaiters {
+		if w != nil && w.ch != nil {
+			close(w.ch)
+		}
+		delete(s.readWaiters, key)
+	}
+}
+
+func (s *Service) drainMessageQueues() {
+	deadline := time.Now().Add(s.drainTimeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		allEmpty := true
+		s.Node.peerQueueMu.RLock()
+		for _, ch := range s.Node.peerQueues {
+			if len(ch) > 0 {
+				allEmpty = false
+				break
+			}
+		}
+		s.Node.peerQueueMu.RUnlock()
+
+		if allEmpty {
+			return
+		}
+		<-ticker.C
+	}
 }
 
 func (s *Service) LastApplied() uint64 {
@@ -212,29 +523,6 @@ func (s *Service) NextRequestID() uint64 {
 	return atomic.AddUint64(&s.nextReqID, 1)
 }
 
-func (s *Service) forwardModifyToLeader(
-	ctx *context.Context,
-	req *commandeventspb.CommandEventRequest,
-	leaderID uint64,
-) (*commandeventspb.CommandEventResponse, error) {
-	if leaderID == 0 {
-		return nil, fmt.Errorf("no known leader")
-	}
-
-	client, ok := s.Node.GetLeaderClient(leaderID)
-	if !ok {
-		return nil, fmt.Errorf("no client for leader %d", leaderID)
-	}
-
-	slog.Debug("forwarding command to leader", "event_id", req.EventId, "leader_id", leaderID)
-	resp, err := client.ProcessCommandEvent(*ctx, req)
-	if err != nil {
-		slog.Debug("forward to leader failed", "event_id", req.EventId, "leader_id", leaderID, "error", err)
-		return nil, fmt.Errorf("forward to leader %d: %w", leaderID, err)
-	}
-	return resp, nil
-}
-
 func (s *Service) getReadIndexFromLeader(ctx *context.Context, leaderID uint64) (uint64, error) {
 	if leaderID == 0 {
 		return 0, fmt.Errorf("no known leader")
@@ -246,7 +534,7 @@ func (s *Service) getReadIndexFromLeader(ctx *context.Context, leaderID uint64) 
 	}
 
 	slog.Debug("getting read index from leader", "node_id", s.Node.Id, "leader_id", leaderID)
-	resp, err := client.GetReadIndex(ctx, &rafttransportpb.GetReadIndexRequest{FromNode: s.Node.Id})
+	resp, err := client.GetReadIndex(*ctx, &rafttransportpb.GetReadIndexRequest{FromNode: s.Node.Id})
 	if err != nil {
 		slog.Debug("get read index from leader failed", "leader_id", leaderID, "error", err)
 		return 0, fmt.Errorf("forward to leader %d: %w", leaderID, err)
@@ -359,14 +647,19 @@ func (s *Service) applyNormalEntry(entry raftpb.Entry) {
 	if len(entry.Data) == 0 {
 		return
 	}
-
+	start := time.Now()
 	err := s.StateMachine.Apply(entry.Data)
+	metrics.CommandDuration.WithLabelValues("apply").Observe(time.Since(start).Seconds())
+
 	if err != nil {
+		metrics.CommandsTotal.WithLabelValues("apply", "error").Inc()
 		slog.Error("state machine apply failed",
 			"node_id", s.Node.Id,
 			"index", entry.Index,
 			"error", err,
 		)
+	} else {
+		metrics.CommandsTotal.WithLabelValues("apply", "success").Inc()
 	}
 }
 
@@ -382,6 +675,8 @@ func (s *Service) TriggerSnapshot(snapCount uint64) error {
 	slog.Debug("triggering snapshot", "lastApplied", lastApplied)
 
 	data, err := s.StoreService.Snapshot()
+	metrics.StorageSnapshotSize.Set(float64(len(data)))
+
 	if err != nil {
 		return fmt.Errorf("get snapshot data: %w", err)
 	}
@@ -433,19 +728,6 @@ func (s *Service) TriggerSnapshot(snapCount uint64) error {
 	return nil
 }
 
-func (s *Service) Start() {
-	slog.Info("starting raft service", "node_id", s.Node.Id)
-
-	if err := s.RecoverState(); err != nil {
-		slog.Error("failed to recover state", "node_id", s.Node.Id, "error", err)
-	}
-
-	s.Node.restoreFromConfState()
-	s.startLoop()
-
-	slog.Info("raft service started", "node_id", s.Node.Id)
-}
-
 func (s *Service) ReconcileConfiguredPeers() {
 	time.Sleep(5 * time.Second)
 
@@ -457,11 +739,11 @@ func (s *Service) ReconcileConfiguredPeers() {
 	slog.Debug("reconciling configured peers", "node_id", s.Node.Id)
 
 	confState := s.Node.ConfState()
-	configuredPeers := s.Node.Peers()
+	raftPeers, clientPeers := s.Node.AllPeers()
 
 	configuredSet := make(map[uint64]bool)
 	configuredSet[s.Node.Id] = true
-	for nodeID := range configuredPeers {
+	for nodeID := range raftPeers {
 		configuredSet[nodeID] = true
 	}
 
@@ -470,14 +752,19 @@ func (s *Service) ReconcileConfiguredPeers() {
 		voterSet[v] = true
 	}
 
-	for nodeID, addr := range configuredPeers {
+	for nodeID, raftAddr := range raftPeers {
 		if nodeID == s.Node.Id {
 			continue
 		}
 		if !voterSet[nodeID] {
-			slog.Info("proposing new peer from config", "node_id", nodeID, "addr", addr)
+			clientAddr := clientPeers[nodeID]
+			slog.Info("proposing new peer from config",
+				"node_id", nodeID,
+				"raftAddr", raftAddr,
+				"clientAddr", clientAddr,
+			)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if err := s.ProposeAddNode(ctx, nodeID, addr); err != nil {
+			if err := s.ProposeAddLearnerNode(ctx, nodeID, raftAddr); err != nil {
 				slog.Warn("failed to propose new peer", "node_id", nodeID, "error", err)
 			}
 			cancel()
@@ -659,23 +946,13 @@ func (s *Service) handleAddLearner(cc raftpb.ConfChange) {
 		return
 	}
 
-	addr := string(cc.Context)
-	if addr == "" {
-		s.Node.mu.RLock()
-		addr = s.Node.raftPeers[cc.NodeID]
-		s.Node.mu.RUnlock()
-	}
-
-	if addr == "" {
-		slog.Warn("no address for new learner", "learner_id", cc.NodeID)
-		return
-	}
+	raftAddr := decodePeerAddrs(cc.Context)
 
 	s.Node.mu.Lock()
-	s.Node.raftPeers[cc.NodeID] = addr
+	s.Node.raftPeers[cc.NodeID] = raftAddr
 	s.Node.mu.Unlock()
 
-	if err := s.Node.initPeerClient(cc.NodeID, addr); err != nil {
+	if err := s.Node.initPeerClient(cc.NodeID, raftAddr); err != nil {
 		slog.Error("failed to init client for learner",
 			"learner_id", cc.NodeID,
 			"error", err,
@@ -687,7 +964,7 @@ func (s *Service) handleAddLearner(cc raftpb.ConfChange) {
 	slog.Info("learner added to cluster",
 		"node_id", s.Node.Id,
 		"learner_id", cc.NodeID,
-		"addr", addr,
+		"raftAddr", raftAddr,
 	)
 
 	if s.IsLeader() {
@@ -710,20 +987,21 @@ func (s *Service) handleAddNode(cc raftpb.ConfChange) {
 		return
 	}
 
-	addr := string(cc.Context)
-	if addr == "" {
+	raftAddr := decodePeerAddrs(cc.Context)
+
+	if raftAddr == "" {
 		s.Node.mu.RLock()
-		addr = s.Node.raftPeers[cc.NodeID]
+		raftAddr = s.Node.raftPeers[cc.NodeID]
 		s.Node.mu.RUnlock()
 	}
 
-	if addr == "" {
+	if raftAddr == "" {
 		slog.Warn("no address for new voter", "voter_id", cc.NodeID)
 		return
 	}
 
 	s.Node.mu.Lock()
-	s.Node.raftPeers[cc.NodeID] = addr
+	s.Node.raftPeers[cc.NodeID] = raftAddr
 	s.Node.mu.Unlock()
 
 	s.Node.mu.RLock()
@@ -731,7 +1009,7 @@ func (s *Service) handleAddNode(cc raftpb.ConfChange) {
 	s.Node.mu.RUnlock()
 
 	if !hasClient {
-		if err := s.Node.initPeerClient(cc.NodeID, addr); err != nil {
+		if err := s.Node.initPeerClient(cc.NodeID, raftAddr); err != nil {
 			slog.Error("failed to init client for voter",
 				"voter_id", cc.NodeID,
 				"error", err,
@@ -751,7 +1029,7 @@ func (s *Service) handleAddNode(cc raftpb.ConfChange) {
 	slog.Info("voter added to cluster",
 		"node_id", s.Node.Id,
 		"voter_id", cc.NodeID,
-		"addr", addr,
+		"raftAddr", raftAddr,
 	)
 
 	if s.IsLeader() {
@@ -781,12 +1059,12 @@ func (s *Service) handleRemoveNode(cc raftpb.ConfChange) {
 	s.Node.stopPeerSender(cc.NodeID)
 
 	s.Node.mu.Lock()
-	client := s.Node.clients[cc.NodeID]
+	client, clientExists := s.Node.clients[cc.NodeID]
 	delete(s.Node.raftPeers, cc.NodeID)
 	delete(s.Node.clients, cc.NodeID)
 	s.Node.mu.Unlock()
 
-	if client != nil {
+	if clientExists {
 		if err := client.Close(); err != nil {
 			slog.Warn("failed to close removed peer client",
 				"peer_id", cc.NodeID,
@@ -884,37 +1162,33 @@ func (s *Service) WaitUntilApplied(ctx context.Context, index uint64) error {
 	return s.waitUntilApplied(&ctx, index)
 }
 
-func (s *Service) ForwardToLeader(
-	ctx context.Context,
-	req *commandeventspb.CommandEventRequest,
-) (*commandeventspb.CommandEventResponse, error) {
-	leaderID := s.LeaderID()
-	if leaderID == 0 {
-		slog.Debug("forward failed: no leader", "event_id", req.EventId)
-		return nil, fmt.Errorf("no known leader")
-	}
-
-	client, ok := s.Node.GetLeaderClient(leaderID)
-	if !ok {
-		slog.Warn("forward failed: no client for leader", "event_id", req.EventId, "leader_id", leaderID)
-		return nil, fmt.Errorf("no client for leader %d", leaderID)
-	}
-
-	slog.Debug("forwarding to leader", "event_id", req.EventId, "leader_id", leaderID)
-	return client.ProcessCommandEvent(ctx, req)
-}
-
-func (s *Service) ProposeAddNode(ctx context.Context, nodeID uint64, addr string) error {
+func (s *Service) ProposeAddNode(ctx context.Context, nodeID uint64, raftAddr string) error {
 	if !s.IsLeader() {
 		return ErrNotLeader
 	}
 
-	slog.Info("proposing add node", "node_id", s.Node.Id, "target", nodeID, "addr", addr)
+	slog.Info("proposing add node", "node_id", s.Node.Id, "target", nodeID, "raftAddr", raftAddr)
 
 	cc := raftpb.ConfChange{
 		Type:    raftpb.ConfChangeAddNode,
 		NodeID:  nodeID,
-		Context: []byte(addr),
+		Context: encodePeerAddrs(raftAddr),
+	}
+
+	return s.Node.raftNode.ProposeConfChange(ctx, cc)
+}
+
+func (s *Service) ProposeAddLearnerNode(ctx context.Context, nodeID uint64, raftAddr string) error {
+	if !s.IsLeader() {
+		return ErrNotLeader
+	}
+
+	slog.Info("proposing add Learner node", "node_id", s.Node.Id, "target", nodeID, "raftAddr", raftAddr)
+
+	cc := raftpb.ConfChange{
+		Type:    raftpb.ConfChangeAddLearnerNode,
+		NodeID:  nodeID,
+		Context: encodePeerAddrs(raftAddr),
 	}
 
 	return s.Node.raftNode.ProposeConfChange(ctx, cc)
@@ -956,13 +1230,20 @@ func (s *Service) Step(ctx context.Context, msg raftpb.Message) error {
 }
 
 func (s *Service) Propose(ctx context.Context, data []byte) error {
+	if s.shuttingDown.Load() {
+		return errors.New("service is shutting down")
+	}
 	if s.Node.Status().Lead == 0 {
 		return ErrNotLeader
 	}
+
 	return s.Node.Propose(ctx, data)
 }
 
 func (s *Service) ReadIndex(ctx context.Context) (uint64, error) {
+	if s.shuttingDown.Load() {
+		return 0, errors.New("service is shutting down")
+	}
 	return s.doReadIndex(ctx)
 }
 
@@ -981,4 +1262,94 @@ func (s *Service) LeaderID() uint64 {
 
 func (s *Service) NodeID() uint64 {
 	return s.Node.Id
+}
+
+func (s *Service) Start() {
+	slog.Info("starting raft service", "node_id", s.Node.Id)
+
+	if err := s.RecoverState(); err != nil {
+		slog.Error("failed to recover state", "error", err)
+	}
+
+	s.Node.restoreFromConfState()
+	s.startLoop()
+
+	if s.Node.IsJoining {
+		go s.requestJoin()
+	}
+
+	slog.Info("raft service started", "node_id", s.Node.Id)
+}
+
+func (s *Service) requestJoin() {
+	time.Sleep(2 * time.Second)
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			confState := s.Node.ConfState()
+			if s.isInCluster(confState) {
+				slog.Info("successfully joined cluster", "node_id", s.Node.Id)
+				return
+			}
+
+			if err := s.tryJoin(); err != nil {
+				slog.Debug("join attempt failed, retrying", "error", err)
+			}
+		}
+	}
+}
+
+func (s *Service) isInCluster(cs raftpb.ConfState) bool {
+	for _, id := range cs.Voters {
+		if id == s.Node.Id {
+			return true
+		}
+	}
+	for _, id := range cs.Learners {
+		if id == s.Node.Id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) tryJoin() error {
+	peers := s.Node.Peers()
+
+	for peerID := range peers {
+		if peerID == s.Node.Id {
+			continue
+		}
+
+		client, ok := s.Node.GetLeaderClient(peerID)
+		if !ok {
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := client.RequestJoinCluster(ctx, &rafttransportpb.JoinRequest{
+			NodeId:   s.Node.Id,
+			RaftAddr: s.localRaftAddr,
+		})
+		cancel()
+
+		if err != nil {
+			slog.Debug("join request failed", "peer_id", peerID, "error", err)
+			continue
+		}
+
+		if resp.Accepted {
+			slog.Info("join request accepted", "by_peer", peerID)
+			return nil
+		}
+
+	}
+
+	return fmt.Errorf("no peer accepted join request")
 }

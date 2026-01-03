@@ -17,6 +17,7 @@ import (
 type RaftHandler interface {
 	Step(ctx context.Context, msg raftpb.Message) error
 	GetReadIndex(ctx context.Context) (uint64, error)
+	HandleJoinRequest(ctx context.Context, id uint64, addr string) error
 }
 
 type RaftTransportHandler struct {
@@ -60,10 +61,40 @@ func (h *RaftTransportHandler) GetReadIndex(
 	return &rafttransportpb.GetReadIndexResponse{ReadIndex: idx}, nil
 }
 
+func (h *RaftTransportHandler) RequestJoinCluster(
+	ctx context.Context,
+	req *rafttransportpb.JoinRequest,
+) (*rafttransportpb.JoinResponse, error) {
+	slog.Debug("join request", "node_id", req.NodeId, "addr", req.RaftAddr)
+
+	err := h.handler.HandleJoinRequest(ctx, req.NodeId, req.RaftAddr)
+	if err != nil {
+		if errors.Is(err, raft.ErrNotLeader) {
+			return &rafttransportpb.JoinResponse{
+				Accepted: false,
+				Message:  "not leader",
+			}, nil
+		}
+		if errors.Is(err, raft.ErrShuttingDown) {
+			return &rafttransportpb.JoinResponse{
+				Accepted: false,
+				Message:  "server is shutting down",
+			}, nil
+		}
+		return nil, raftError(err)
+	}
+
+	return &rafttransportpb.JoinResponse{Accepted: true}, nil
+}
+
 func raftError(err error) error {
 	switch {
-	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-		return status.FromContextError(err).Err()
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, "request timed out")
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, "request canceled")
+	case errors.Is(err, raft.ErrShuttingDown):
+		return status.Error(codes.Unavailable, "server is shutting down")
 	case errors.Is(err, raft.ErrNotLeader):
 		return status.Error(codes.FailedPrecondition, "not leader")
 	default:

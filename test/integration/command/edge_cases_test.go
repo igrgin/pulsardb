@@ -3,12 +3,11 @@ package integration
 import (
 	"context"
 	"pulsardb/internal/command"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 	"pulsardb/test/integration/helper"
 	"strings"
 	"testing"
 	"time"
-
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
 
 	"github.com/stretchr/testify/require"
 )

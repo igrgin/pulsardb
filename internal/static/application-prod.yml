@@ -11,6 +11,8 @@ transport:
   client-port: ${CLIENT_PORT:50051}
   raft-port: ${RAFT_PORT:50052}
   address: ${TRANSPORT_ADDRESS}
+  network: ${TRANSPORT_NETWORK:tcp}
+  timeout: ${TRANSPORT_TIMEOUT:60}
   raft:
     max-concurrent-streams: ${RAFT_MAX_CONCURRENT_STREAMS:100}
     num-stream-workers: ${RAFT_NUM_STREAM_WORKERS:20}
@@ -31,8 +33,11 @@ raft:
   timeout: ${RAFT_TIMEOUT:10}
   step-inbox-size: ${STEP_INBOX_SIZE:4096}
   send-queue-size: ${SEND_QUEUE_SIZE:1024}
+  promotion-threshold: ${RAFT_PROMOTION_THRESHOLD:100}
+  promotion-check-interval: ${RAFT_PROMOTION_CHECK_INTERVAL:5s}
+  service-drain-timeout: ${RAFT_SERVICE_DRAIN_TIMEOUT:5s}
+  node-drain-timeout: ${RAFT_NODE_DRAIN_TIMEOUT:5s}
   raft-peers-env: ${RAFT_PEERS:}
-  client-peers-env: ${CLIENT_PEERS:}
   etcd:
     election-tick: ${ETCD_ELECTION_TICK:10}
     heartbeat-tick: ${ETCD_HEARTBEAT_TICK:1}
@@ -40,4 +45,4 @@ raft:
     max-inflight-msgs: ${MAX_INFLIGHT_MSG:256}
     max-uncommitted-entries-size: ${MAX_UNCOMMITTED_ENTRIES_SIZE:1_073_741_824}
   wal:
-    no-sync: ${WAL_NO_SYNC:true}  
+    no-sync: ${WAL_NO_SYNC:true}

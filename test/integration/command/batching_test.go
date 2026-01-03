@@ -3,7 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
-	commandeventspb "pulsardb/internal/transport/gen/commandevents"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 	"pulsardb/test/integration/helper"
 	"sync"
 	"testing"
@@ -14,10 +14,12 @@ import (
 
 func TestBatchBySize(t *testing.T) {
 	cfg := &helper.TestClusterConfig{
-		TickInterval: 100 * time.Millisecond,
-		ElectionTick: 10,
-		BatchSize:    10,
-		BatchWait:    50,
+		TickInterval:           100 * time.Millisecond,
+		ElectionTick:           10,
+		BatchSize:              10,
+		BatchWait:              50,
+		PromotionThreshold:     100,
+		PromotionCheckInterval: 5 * time.Second,
 	}
 	c := helper.NewCluster(t, cfg, "info")
 	c.StartNodes(3, 60)
@@ -72,10 +74,12 @@ func TestBatchBySize(t *testing.T) {
 
 func TestBatchByTime(t *testing.T) {
 	cfg := &helper.TestClusterConfig{
-		TickInterval: 100 * time.Millisecond,
-		ElectionTick: 10,
-		BatchSize:    100,
-		BatchWait:    50,
+		TickInterval:           100 * time.Millisecond,
+		ElectionTick:           10,
+		BatchSize:              100,
+		BatchWait:              50,
+		PromotionThreshold:     100,
+		PromotionCheckInterval: 5 * time.Second,
 	}
 	c := helper.NewCluster(t, cfg, "info")
 	c.StartNodes(3, 60)
@@ -110,10 +114,12 @@ func TestBatchByTime(t *testing.T) {
 
 func TestMixedBatchTriggers(t *testing.T) {
 	cfg := &helper.TestClusterConfig{
-		TickInterval: 100 * time.Millisecond,
-		ElectionTick: 10,
-		BatchSize:    10,
-		BatchWait:    50,
+		TickInterval:           100 * time.Millisecond,
+		ElectionTick:           10,
+		BatchSize:              10,
+		BatchWait:              50,
+		PromotionThreshold:     100,
+		PromotionCheckInterval: 5 * time.Second,
 	}
 	c := helper.NewCluster(t, cfg, "info")
 	c.StartNodes(3, 60)

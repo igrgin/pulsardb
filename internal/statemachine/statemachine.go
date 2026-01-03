@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"pulsardb/internal/domain"
-	"pulsardb/internal/transport/gen/commandevents"
+	"pulsardb/internal/transport/gen/command"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -24,10 +24,6 @@ func New(storage domain.Store) *StateMachine {
 		storage:   storage,
 		callbacks: make([]ApplyCallback, 0),
 	}
-}
-
-func (sm *StateMachine) Get(key string) (any, bool) {
-	return sm.storage.Get(key)
 }
 
 func (sm *StateMachine) OnApply(cb ApplyCallback) {
