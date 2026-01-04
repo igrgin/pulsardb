@@ -92,18 +92,6 @@ func (c *TransportConfigurationProperties) RaftAddr() string {
 	return c.Address + ":" + c.RaftPort
 }
 
-func (c *TransportConfigurationProperties) ClientAddr() string {
-	return c.Address + ":" + c.ClientPort
-}
-
-func (c *RaftConfigurationProperties) BatchTimeout() time.Duration {
-	return c.BatchMaxWait * time.Millisecond
-}
-
-func (c *RaftConfigurationProperties) TickDuration() time.Duration {
-	return c.TickInterval * time.Millisecond
-}
-
 func ParsePeers(s string) map[uint64]string {
 	peers := make(map[uint64]string)
 	if s == "" {

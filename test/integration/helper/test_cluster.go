@@ -207,7 +207,7 @@ func (c *Cluster) StartNode(
 
 	batchCfg := command.BatchConfig{
 		MaxSize: rc.BatchSize,
-		MaxWait: rc.BatchTimeout(),
+		MaxWait: rc.BatchMaxWait,
 	}
 
 	cmdSvc := command.NewService(storageSvc, raftSvc, batchCfg)
