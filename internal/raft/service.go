@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"pulsardb/convert"
 	"pulsardb/internal/configuration"
 	"pulsardb/internal/domain"
 	"pulsardb/internal/metrics"
 	"pulsardb/internal/storage"
 	"pulsardb/internal/transport/gen/command"
 	"pulsardb/internal/transport/gen/raft"
-	"pulsardb/internal/types"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -192,8 +192,6 @@ func (s *Service) promoteToVoter(ctx context.Context, nodeID uint64) error {
 
 	return s.Node.raftNode.ProposeConfChange(ctx, cc)
 }
-
-const peerAddrSeparator = "|"
 
 func encodePeerAddrs(raftAddr string) []byte {
 	return []byte(raftAddr)
@@ -886,7 +884,7 @@ func (s *Service) replayEntry(entry raftpb.Entry) error {
 func (s *Service) applyToStorage(req *commandeventspb.CommandEventRequest) error {
 	switch req.GetType() {
 	case commandeventspb.CommandEventType_SET:
-		val := types.ValueFromProto(req.GetValue())
+		val := convert.FromCommandProto(req.GetValue())
 		s.StoreService.Set(req.GetKey(), val)
 		slog.Debug("replayed SET", "key", req.GetKey())
 	case commandeventspb.CommandEventType_DELETE:

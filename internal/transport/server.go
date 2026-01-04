@@ -40,7 +40,6 @@ func NewServer(
 	RaftOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(cfg.RaftTransportConfig.MaxConcurrentStreams),
 		grpc.NumStreamWorkers(cfg.RaftTransportConfig.NumStreamWorkers),
-		grpc.ConnectionTimeout(cfg.RaftTransportConfig.Timeout),
 		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
 	}
 	ClientOpts := []grpc.ServerOption{
