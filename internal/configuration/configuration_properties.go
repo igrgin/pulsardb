@@ -21,15 +21,13 @@ type AppConfigurationProperties struct {
 }
 
 type RaftTransportConfigProperties struct {
-	NumStreamWorkers     uint32        `yaml:"num-stream-workers"`
-	MaxConcurrentStreams uint32        `yaml:"max-concurrent-streams"`
-	Timeout              time.Duration `yaml:"timeout"`
+	NumStreamWorkers     uint32 `yaml:"num-stream-workers"`
+	MaxConcurrentStreams uint32 `yaml:"max-concurrent-streams"`
 }
 
 type ClientTransportConfigProperties struct {
-	NumStreamWorkers     uint32        `yaml:"num-stream-workers"`
-	MaxConcurrentStreams uint32        `yaml:"max-concurrent-streams"`
-	Timeout              time.Duration `yaml:"timeout"`
+	NumStreamWorkers     uint32 `yaml:"num-stream-workers"`
+	MaxConcurrentStreams uint32 `yaml:"max-concurrent-streams"`
 }
 
 type TransportConfigurationProperties struct {
@@ -59,7 +57,7 @@ type RaftConfigurationProperties struct {
 	RaftPeersRaw           string                  `yaml:"raft-peers-env"` // "2=ip:port,3=ip:port"
 	StorageDir             string                  `yaml:"storage-dir"`
 	TickInterval           time.Duration           `yaml:"tick-interval"`
-	Timeout                uint64                  `yaml:"timeout"`
+	Timeout                time.Duration           `yaml:"timeout"`
 	SnapCount              uint64                  `yaml:"snap-count"`
 	BatchSize              int                     `yaml:"batch-size"`
 	BatchMaxWait           time.Duration           `yaml:"batch-max-wait"`

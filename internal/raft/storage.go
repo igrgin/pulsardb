@@ -30,8 +30,6 @@ const (
 	walFolder      = "wal"
 )
 
-var snapshotNotFound = errors.New("snapshot not found")
-
 type Storage struct {
 	mu sync.Mutex
 

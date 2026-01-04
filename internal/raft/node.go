@@ -25,7 +25,7 @@ type Node struct {
 	clients      map[uint64]Client
 	confState    raftpb.ConfState
 	mu           sync.RWMutex
-	Timeout      uint64
+	Timeout      time.Duration
 	peerQueues   map[uint64]chan raftpb.Message
 	peerQueueMu  sync.RWMutex
 	sendStopCh   chan struct{}
@@ -261,7 +261,7 @@ func (n *Node) Peers() map[uint64]string {
 	return peersCopy
 }
 
-func (n *Node) GetTimeout() uint64 {
+func (n *Node) GetTimeout() time.Duration {
 	return n.Timeout
 }
 
@@ -443,7 +443,7 @@ func (n *Node) sendMessage(msg raftpb.Message) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(n.Timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), n.Timeout)
 	defer cancel()
 
 	if _, err := client.SendRaftMessage(ctx, &rafttransportpb.RaftMessage{Data: data}); err != nil {

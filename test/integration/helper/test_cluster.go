@@ -178,7 +178,7 @@ func (c *Cluster) StartNode(
 		StorageDir:             nodeDir,
 		RaftPeers:              raftPeers,
 		TickInterval:           c.config.TickInterval,
-		Timeout:                5,
+		Timeout:                5 * time.Second,
 		SnapCount:              1000,
 		BatchSize:              c.config.BatchSize,
 		BatchMaxWait:           c.config.BatchWait,
@@ -614,21 +614,6 @@ func RequireSuccess(t *testing.T, resp *command2.CommandEventResponse, err error
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.True(t, resp.GetSuccess(), "expected success, got error: %v", resp.GetError())
-}
-
-func requireFailure(t *testing.T, resp *command2.CommandEventResponse, err error) {
-	t.Helper()
-	require.Error(t, err)
-	require.Nil(t, resp)
-}
-
-func processCmd(t *testing.T, cmdSvc *command.Service, req *command2.CommandEventRequest) (*command2.CommandEventResponse, error) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	return cmdSvc.ProcessCommand(ctx, req)
 }
 
 func (c *Cluster) SetValue(ctx context.Context, key string, value *command2.CommandEventValue) (*command2.CommandEventResponse, error) {

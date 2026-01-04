@@ -13,18 +13,16 @@ transport:
   raft:
     max-concurrent-streams: 50
     num-stream-workers: 24
-    timeout: 30s
   client:
     max-concurrent-streams: 100
     num-stream-workers: 24
-    timeout: 30s
 
 raft:
   batch-size: 35
   batch-max-wait: 20ms
   tick-interval: 100ms
   snap-count: 30_000 # Snapshot every X entries
-  timeout: 10 # seconds
+  timeout: 10s # seconds
   step-inbox-size: 4096
   send-queue-size: 1024
   promotion-threshold: 100
