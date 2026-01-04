@@ -5,14 +5,12 @@ transport:
 metrics:
   port: 9093
 
-
 raft:
+  #join: true
   node-id: 4
   raft-peers:
     1: "127.0.0.1:50052"
     2: "127.0.0.1:50054"
     3: "127.0.0.1:50056"
     5: "127.0.0.1:50060"
-    #6: "127.0.0.1:50062"
-    #7: "127.0.0.1:50064"
   storage-dir: "internal/node-storage/local4"
