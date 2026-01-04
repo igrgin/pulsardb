@@ -10,15 +10,14 @@ metrics:
 transport:
   network: tcp
   address: 127.0.0.1
-  timeout: 60 # seconds
   raft:
     max-concurrent-streams: 50
     num-stream-workers: 24
-    timeout: 60
+    timeout: 30s
   client:
     max-concurrent-streams: 100
     num-stream-workers: 24
-    timeout: 60
+    timeout: 30s
 
 raft:
   batch-size: 35
