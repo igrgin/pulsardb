@@ -21,15 +21,13 @@ type AppConfigurationProperties struct {
 }
 
 type RaftTransportConfigProperties struct {
-	NumStreamWorkers     uint32        `yaml:"num-stream-workers"`
-	MaxConcurrentStreams uint32        `yaml:"max-concurrent-streams"`
-	Timeout              time.Duration `yaml:"timeout"`
+	NumStreamWorkers     uint32 `yaml:"num-stream-workers"`
+	MaxConcurrentStreams uint32 `yaml:"max-concurrent-streams"`
 }
 
 type ClientTransportConfigProperties struct {
-	NumStreamWorkers     uint32        `yaml:"num-stream-workers"`
-	MaxConcurrentStreams uint32        `yaml:"max-concurrent-streams"`
-	Timeout              time.Duration `yaml:"timeout"`
+	NumStreamWorkers     uint32 `yaml:"num-stream-workers"`
+	MaxConcurrentStreams uint32 `yaml:"max-concurrent-streams"`
 }
 
 type TransportConfigurationProperties struct {

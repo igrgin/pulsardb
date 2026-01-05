@@ -45,7 +45,6 @@ func NewServer(
 	ClientOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(cfg.ClientTransportConfig.MaxConcurrentStreams),
 		grpc.NumStreamWorkers(cfg.ClientTransportConfig.NumStreamWorkers),
-		grpc.ConnectionTimeout(cfg.ClientTransportConfig.Timeout),
 		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
 	}
 
