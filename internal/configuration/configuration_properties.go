@@ -21,15 +21,13 @@ type AppConfigurationProperties struct {
 }
 
 type RaftTransportConfigProperties struct {
-	NumStreamWorkers     uint32        `yaml:"num-stream-workers"`
-	MaxConcurrentStreams uint32        `yaml:"max-concurrent-streams"`
-	Timeout              time.Duration `yaml:"timeout"`
+	NumStreamWorkers     uint32 `yaml:"num-stream-workers"`
+	MaxConcurrentStreams uint32 `yaml:"max-concurrent-streams"`
 }
 
 type ClientTransportConfigProperties struct {
-	NumStreamWorkers     uint32        `yaml:"num-stream-workers"`
-	MaxConcurrentStreams uint32        `yaml:"max-concurrent-streams"`
-	Timeout              time.Duration `yaml:"timeout"`
+	NumStreamWorkers     uint32 `yaml:"num-stream-workers"`
+	MaxConcurrentStreams uint32 `yaml:"max-concurrent-streams"`
 }
 
 type TransportConfigurationProperties struct {
@@ -90,18 +88,6 @@ func (m *MetricsConfigurationProperties) Addr() string {
 
 func (c *TransportConfigurationProperties) RaftAddr() string {
 	return c.Address + ":" + c.RaftPort
-}
-
-func (c *TransportConfigurationProperties) ClientAddr() string {
-	return c.Address + ":" + c.ClientPort
-}
-
-func (c *RaftConfigurationProperties) BatchTimeout() time.Duration {
-	return c.BatchMaxWait * time.Millisecond
-}
-
-func (c *RaftConfigurationProperties) TickDuration() time.Duration {
-	return c.TickInterval * time.Millisecond
 }
 
 func ParsePeers(s string) map[uint64]string {

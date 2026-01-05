@@ -23,11 +23,6 @@ import (
 )
 
 var ErrShuttingDown = errors.New("shutdown in progress")
-
-type StateMachine interface {
-	Apply(data []byte) (response []byte, err error)
-}
-
 var ErrNotLeader = errors.New("not leader")
 
 type readWaiter struct {
