@@ -29,3 +29,7 @@ func (c *AppConfigProvider) GetRaft() *RaftConfigurationProperties {
 func (c *AppConfigProvider) GetMetrics() *MetricsConfigurationProperties {
 	return &c.config.Metrics
 }
+
+func (c *AppConfigProvider) GetCommand() *CommandConfigurationProperties {
+	return c.config.Command
+}

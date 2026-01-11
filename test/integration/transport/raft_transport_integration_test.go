@@ -16,7 +16,7 @@ import (
 
 func TestClientTransport_StartClientServer_AcceptsConnections(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -26,7 +26,7 @@ func TestClientTransport_StartClientServer_AcceptsConnections(t *testing.T) {
 
 func TestClientTransport_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	_, err := c.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -36,7 +36,7 @@ func TestClientTransport_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		leader.ClientServer.GracefulStop()
+		leader.Transport.Stop()
 		close(done)
 	}()
 
@@ -49,7 +49,7 @@ func TestClientTransport_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 
 func TestClientTransport_RequestAfterShutdown_Fails(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 
@@ -74,7 +74,7 @@ func TestClientTransport_RequestAfterShutdown_Fails(t *testing.T) {
 
 func TestClientTransport_SET_Success(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -96,7 +96,7 @@ func TestClientTransport_SET_Success(t *testing.T) {
 
 func TestClientTransport_SET_MissingKey_ReturnsInvalidArgument(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -119,7 +119,7 @@ func TestClientTransport_SET_MissingKey_ReturnsInvalidArgument(t *testing.T) {
 
 func TestClientTransport_SET_MissingValue_ReturnsInvalidArgument(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -140,7 +140,7 @@ func TestClientTransport_SET_MissingValue_ReturnsInvalidArgument(t *testing.T) {
 
 func TestClientTransport_GET_ExistingKey_ReturnsValue(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -170,7 +170,7 @@ func TestClientTransport_GET_ExistingKey_ReturnsValue(t *testing.T) {
 
 func TestClientTransport_GET_NonExistentKey_ReturnsError(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -190,7 +190,7 @@ func TestClientTransport_GET_NonExistentKey_ReturnsError(t *testing.T) {
 
 func TestClientTransport_GET_WithValue_ReturnsInvalidArgument(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -213,7 +213,7 @@ func TestClientTransport_GET_WithValue_ReturnsInvalidArgument(t *testing.T) {
 
 func TestClientTransport_DELETE_ExistingKey_Success(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -249,7 +249,7 @@ func TestClientTransport_DELETE_ExistingKey_Success(t *testing.T) {
 
 func TestClientTransport_ResponseMetadata_IsCorrect(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -273,7 +273,7 @@ func TestClientTransport_ResponseMetadata_IsCorrect(t *testing.T) {
 
 func TestClientTransport_MultipleValueTypes(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -363,7 +363,7 @@ func TestClientTransport_MultipleValueTypes(t *testing.T) {
 
 func TestClientTransport_OverwriteExistingKey(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -402,7 +402,7 @@ func TestClientTransport_OverwriteExistingKey(t *testing.T) {
 
 func TestClientTransport_LargeValue(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -436,7 +436,7 @@ func TestClientTransport_LargeValue(t *testing.T) {
 
 func TestClientTransport_ConcurrentClients(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -513,7 +513,7 @@ func TestClientTransport_ConcurrentClients(t *testing.T) {
 
 func TestClientTransport_ErrorResponse_DoesNotLeakInternalDetails(t *testing.T) {
 	c := integration2.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()

@@ -12,12 +12,14 @@ type Properties struct {
 	Transport TransportConfigurationProperties `yaml:"transport"`
 	Raft      RaftConfigurationProperties      `yaml:"raft"`
 	Metrics   MetricsConfigurationProperties   `yaml:"metrics"`
+	Command   *CommandConfigurationProperties  `yaml:"command"`
 }
 
 type AppConfigurationProperties struct {
 	Profile        string `yaml:"profile"`
 	LogLevel       string `yaml:"log-level"`
 	QuorumWaitTime int    `yaml:"quorum-wait-time"`
+	AdvertiseIP    string `yaml:"advertise-ip"`
 }
 
 type RaftTransportConfigProperties struct {
@@ -39,6 +41,12 @@ type TransportConfigurationProperties struct {
 	ClientTransportConfig ClientTransportConfigProperties `yaml:"client"`
 }
 
+type CommandConfigurationProperties struct {
+	BatchSize           int           `yaml:"batch-size"`
+	BatchMaxWait        time.Duration `yaml:"batch-max-wait"`
+	CleanupTickInterval time.Duration `yaml:"cleanup-tick-interval"`
+}
+
 type EtcdConfigProperties struct {
 	ElectionTick              int    `yaml:"election-tick"`
 	HeartbeatTick             int    `yaml:"heartbeat-tick"`
@@ -54,13 +62,11 @@ type WriteAheadLogProperties struct {
 type RaftConfigurationProperties struct {
 	NodeID                 uint64                  `yaml:"node-id"`
 	RaftPeers              map[uint64]string       `yaml:"raft-peers"`
-	RaftPeersRaw           string                  `yaml:"raft-peers-env"` // "2=ip:port,3=ip:port"
+	RaftPeersRaw           string                  `yaml:"raft-peers-env"`
 	StorageDir             string                  `yaml:"storage-dir"`
 	TickInterval           time.Duration           `yaml:"tick-interval"`
 	Timeout                time.Duration           `yaml:"timeout"`
 	SnapCount              uint64                  `yaml:"snap-count"`
-	BatchSize              int                     `yaml:"batch-size"`
-	BatchMaxWait           time.Duration           `yaml:"batch-max-wait"`
 	ElectionTick           int                     `yaml:"election-tick"`
 	HeartbeatTick          int                     `yaml:"heartbeat-tick"`
 	MaxSizePerMsg          uint64                  `yaml:"max-size-per-msg"`
@@ -74,6 +80,9 @@ type RaftConfigurationProperties struct {
 	PromotionCheckInterval time.Duration           `yaml:"promotion-check-interval"`
 	ServiceDrainTimeout    time.Duration           `yaml:"service-drain-timeout"`
 	NodeDrainTimeout       time.Duration           `yaml:"node-drain-timeout"`
+	LeaseBasedRead         bool                    `yaml:"lease-based-read"`
+	CheckQuorum            bool                    `yaml:"check-quorum"`
+	PreVote                bool                    `yaml:"pre-vote"`
 }
 
 type MetricsConfigurationProperties struct {

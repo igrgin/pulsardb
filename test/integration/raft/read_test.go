@@ -12,7 +12,7 @@ import (
 func TestReadAfterWriteSameNode(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -30,12 +30,12 @@ func TestReadAfterWriteSameNode(t *testing.T) {
 
 	leader := c.GetLeader()
 
-	readIndex, err := leader.RaftService.GetReadIndex(ctx)
+	readIndex, err := leader.Coordinator.ReadIndex(ctx)
 	if err != nil {
 		t.Fatalf("GetReadIndex failed: %v", err)
 	}
 
-	if err := leader.RaftService.WaitUntilApplied(ctx, readIndex); err != nil {
+	if err := leader.Coordinator.WaitUntilApplied(ctx, readIndex); err != nil {
 		t.Fatalf("WaitUntilApplied failed: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestReadAfterWriteSameNode(t *testing.T) {
 func TestReadAfterWriteDifferentNode(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -82,13 +82,13 @@ func TestReadAfterWriteDifferentNode(t *testing.T) {
 
 	follower := followers[0]
 
-	leaderID := follower.RaftService.LeaderID()
-	readIndex, err := follower.RaftService.GetReadIndexFromLeader(ctx, leaderID)
+	leaderID := follower.Coordinator.LeaderID()
+	readIndex, err := follower.Coordinator.GetReadIndexFromLeader(ctx, leaderID)
 	if err != nil {
 		t.Fatalf("GetReadIndexFromLeader failed: %v", err)
 	}
 
-	if err := follower.RaftService.WaitUntilApplied(ctx, readIndex); err != nil {
+	if err := follower.Coordinator.WaitUntilApplied(ctx, readIndex); err != nil {
 		t.Fatalf("WaitUntilApplied on follower failed: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestReadAfterWriteDifferentNode(t *testing.T) {
 func TestReadIndexOnLeader(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -121,7 +121,7 @@ func TestReadIndexOnLeader(t *testing.T) {
 
 	var indices []uint64
 	for i := 0; i < 5; i++ {
-		idx, err := leader.RaftService.GetReadIndex(ctx)
+		idx, err := leader.Coordinator.ReadIndex(ctx)
 		if err != nil {
 			t.Fatalf("GetReadIndex %d failed: %v", i, err)
 		}
@@ -139,7 +139,7 @@ func TestReadIndexOnLeader(t *testing.T) {
 func TestConcurrentReads(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -169,13 +169,13 @@ func TestConcurrentReads(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			idx, err := leader.RaftService.GetReadIndex(ctx)
+			idx, err := leader.Coordinator.ReadIndex(ctx)
 			if err != nil {
 				errors <- fmt.Errorf("reader %d GetReadIndex: %w", i, err)
 				return
 			}
 
-			if err := leader.RaftService.WaitUntilApplied(ctx, idx); err != nil {
+			if err := leader.Coordinator.WaitUntilApplied(ctx, idx); err != nil {
 				errors <- fmt.Errorf("reader %d WaitUntilApplied: %w", i, err)
 				return
 			}
@@ -199,7 +199,7 @@ func TestConcurrentReads(t *testing.T) {
 func TestReadIndexTimeout(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -215,7 +215,7 @@ func TestReadIndexTimeout(t *testing.T) {
 	defer cancel()
 
 	leader := c.GetNode(leaderID)
-	_, err = leader.RaftService.GetReadIndex(ctx)
+	_, err = leader.Coordinator.ReadIndex(ctx)
 
 	if err == nil {
 		t.Log("ReadIndex succeeded without quorum - leader might have cached state")
@@ -227,7 +227,7 @@ func TestReadIndexTimeout(t *testing.T) {
 func TestWaitForQuorum(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -235,7 +235,7 @@ func TestWaitForQuorum(t *testing.T) {
 	for id := uint64(1); id <= 3; id++ {
 		node := c.GetNode(id)
 
-		leaderID, readIndex, err := node.RaftService.WaitForQuorum(ctx)
+		leaderID, readIndex, err := node.Coordinator.WaitForQuorum(ctx)
 		if err != nil {
 			t.Errorf("node %d WaitForQuorum failed: %v", id, err)
 			continue

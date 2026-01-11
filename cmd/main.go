@@ -11,6 +11,7 @@ import (
 	"pulsardb/internal/logging"
 	"pulsardb/internal/metrics"
 	"pulsardb/internal/raft"
+	"pulsardb/internal/raft/coordinator"
 	"pulsardb/internal/statemachine"
 	"pulsardb/internal/storage"
 	"pulsardb/internal/transport"
@@ -68,34 +69,50 @@ func main() {
 	}
 
 	localAddress := configProvider.GetTransport().Address
-	raftService := raft.NewService(raftNode, storeService, stateMachine, configProvider.GetRaft(),
-		net.JoinHostPort(localAddress, configProvider.GetTransport().RaftPort))
+	advertiseAddr := configProvider.GetApplication().AdvertiseIP
+	localRaftAddr := net.JoinHostPort(localAddress, configProvider.GetTransport().RaftPort)
 
-	commandService := command.NewService(storeService, raftService, command.BatchConfig{
-		MaxSize: cfg.Raft.BatchSize,
-		MaxWait: cfg.Raft.BatchMaxWait,
+	nodeAdapter := coordinator.NewRaftNodeAdapter(raftNode)
+	transportAdapter := coordinator.NewTransportAdapter(raftNode)
+
+	coordCfg := coordinator.NewConfigFromProperties(configProvider.GetRaft(), localRaftAddr, advertiseAddr)
+
+	raftCoordinator := coordinator.New(nodeAdapter, transportAdapter, storeService, stateMachine, coordCfg)
+
+	commandService := command.NewProcessor(storeService, raftCoordinator, command.BatchConfig{
+		MaxSize:             configProvider.GetCommand().BatchSize,
+		MaxWait:             configProvider.GetCommand().BatchMaxWait,
+		CleanupTickInterval: configProvider.GetCommand().CleanupTickInterval,
 	})
 
 	stateMachine.OnApply(commandService.HandleApplied)
 
-	transportServer := transport.NewServer(configProvider.GetTransport(), commandService, raftService)
+	transportServer := transport.NewServer(configProvider.GetTransport(), commandService, raftCoordinator)
 
-	transportServer.StartRaft()
-	raftService.Start()
+	if err := transportServer.StartRaft(); err != nil {
+		slog.Error("failed to start raft transport", "error", err)
+		os.Exit(1)
+	}
+
+	raftCoordinator.Start()
 
 	qctx, qcancel := context.WithTimeout(ctx, time.Duration(configProvider.GetApplication().QuorumWaitTime)*time.Second)
 	defer qcancel()
 
-	leaderID, readIndex, err := raftService.WaitForQuorum(qctx)
+	leaderID, readIndex, err := raftCoordinator.WaitForQuorum(qctx)
 	if err != nil {
 		slog.Error("Failed to achieve Raft quorum", "error", err)
-		shutdown(transportServer, raftService, commandService, metricsServer)
+		shutdown(transportServer, raftCoordinator, commandService, metricsServer)
 		return
 	}
 
-	go raftService.ReconcileConfiguredPeers()
+	go raftCoordinator.ReconcileConfiguredPeers()
 
-	transportServer.StartClient()
+	if err := transportServer.StartClient(); err != nil {
+		slog.Error("failed to start client transport", "error", err)
+		shutdown(transportServer, raftCoordinator, commandService, metricsServer)
+		return
+	}
 
 	slog.Info("Database Ready",
 		"node_id", raftNode.Id,
@@ -105,18 +122,18 @@ func main() {
 
 	<-ctx.Done()
 
-	shutdown(transportServer, raftService, commandService, metricsServer)
+	shutdown(transportServer, raftCoordinator, commandService, metricsServer)
 }
 
 func shutdown(
 	transportServer *transport.Server,
-	raftService *raft.Service,
-	commandService *command.Service,
+	raftCoordinator *coordinator.Coordinator,
+	commandService *command.Processor,
 	metricsServer *metrics.Server,
 ) {
 	transportServer.Stop()
 	commandService.Stop()
-	raftService.Stop()
+	raftCoordinator.Stop()
 	if metricsServer != nil {
 		metricsServer.Stop()
 	}

@@ -53,6 +53,20 @@ message BatchedCommands {
   repeated CommandEventRequest commands = 1;
 }
 
+message NotLeaderDetails {
+  uint64 leader_id = 1;
+  string leader_addr = 2;
+}
+
+message KeyNotFoundDetails {
+  string key = 1;
+  string operation = 2;
+}
+
+message InvalidCommandDetails {
+  string reason = 1;
+}
+
 service CommandEventClientService {
   rpc ProcessCommandEvent(CommandEventRequest) returns (CommandEventResponse);
 }

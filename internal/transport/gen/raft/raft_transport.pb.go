@@ -201,6 +201,7 @@ type JoinRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	RaftAddr      string                 `protobuf:"bytes,2,opt,name=raft_addr,json=raftAddr,proto3" json:"raft_addr,omitempty"`
+	ClientAddr    string                 `protobuf:"bytes,3,opt,name=client_addr,json=clientAddr,proto3" json:"client_addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -245,6 +246,13 @@ func (x *JoinRequest) GetNodeId() uint64 {
 func (x *JoinRequest) GetRaftAddr() string {
 	if x != nil {
 		return x.RaftAddr
+	}
+	return ""
+}
+
+func (x *JoinRequest) GetClientAddr() string {
+	if x != nil {
+		return x.ClientAddr
 	}
 	return ""
 }
@@ -314,10 +322,12 @@ const file_raft_transport_proto_rawDesc = "" +
 	"\tfrom_node\x18\x01 \x01(\x04R\bfromNode\"5\n" +
 	"\x14GetReadIndexResponse\x12\x1d\n" +
 	"\n" +
-	"read_index\x18\x01 \x01(\x04R\treadIndex\"C\n" +
+	"read_index\x18\x01 \x01(\x04R\treadIndex\"d\n" +
 	"\vJoinRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1b\n" +
-	"\traft_addr\x18\x02 \x01(\tR\braftAddr\"D\n" +
+	"\traft_addr\x18\x02 \x01(\tR\braftAddr\x12\x1f\n" +
+	"\vclient_addr\x18\x03 \x01(\tR\n" +
+	"clientAddr\"D\n" +
 	"\fJoinResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage2\xdb\x01\n" +

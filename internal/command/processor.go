@@ -7,41 +7,43 @@ import (
 	"pulsardb/convert"
 	"pulsardb/internal/domain"
 	"pulsardb/internal/metrics"
+	"pulsardb/internal/raft/coordinator"
 	"pulsardb/internal/transport/gen/command"
 	"sync"
 	"time"
 )
 
 type BatchConfig struct {
-	MaxSize int
-	MaxWait time.Duration
+	MaxSize             int
+	MaxWait             time.Duration
+	CleanupTickInterval time.Duration
 }
 
-type Service struct {
+type Processor struct {
 	storageService domain.Store
 	proposer       domain.Consensus
-	batcher        *Batcher
-	pending        map[uint64]chan *commandeventspb.CommandEventResponse
-	mu             sync.RWMutex
+	Batcher        *Batcher
+	Pending        map[uint64]chan *commandeventspb.CommandEventResponse
+	Mu             sync.RWMutex
 }
 
-func NewService(storageService domain.Store, proposer domain.Consensus, batchCfg BatchConfig) *Service {
-	s := &Service{
+func NewProcessor(storageService domain.Store, proposer domain.Consensus, batchCfg BatchConfig) *Processor {
+	s := &Processor{
 		storageService: storageService,
 		proposer:       proposer,
-		pending:        make(map[uint64]chan *commandeventspb.CommandEventResponse),
+		Pending:        make(map[uint64]chan *commandeventspb.CommandEventResponse),
 	}
-	s.batcher = NewBatcher(proposer, s, batchCfg)
+	s.Batcher = NewBatcher(proposer, s, batchCfg)
 	slog.Info("command service initialized")
 	return s
 }
 
-func (s *Service) Stop() {
-	s.batcher.Stop()
+func (s *Processor) Stop() {
+	s.Batcher.Stop()
 	slog.Info("command service stopped")
 }
 
-func (s *Service) ProcessCommand(
+func (s *Processor) ProcessCommand(
 	ctx context.Context,
 	req *commandeventspb.CommandEventRequest,
 ) (*commandeventspb.CommandEventResponse, error) {
@@ -85,7 +87,17 @@ func (s *Service) ProcessCommand(
 	return resp, err
 }
 
-func (s *Service) read(
+func (s *Processor) GetLeaderInfo() (uint64, string) {
+	leaderID := s.proposer.LeaderID()
+	if leaderID == 0 {
+		return 0, ""
+	}
+
+	addr := s.proposer.GetPeerAddr(leaderID)
+	return leaderID, addr
+}
+
+func (s *Processor) read(
 	ctx context.Context,
 	req *commandeventspb.CommandEventRequest,
 ) (*commandeventspb.CommandEventResponse, error) {
@@ -110,18 +122,21 @@ func (s *Service) read(
 	}, nil
 }
 
-func (s *Service) write(
+func (s *Processor) write(
 	ctx context.Context,
 	req *commandeventspb.CommandEventRequest,
 ) (*commandeventspb.CommandEventResponse, error) {
 	slog.Debug("write operation", "eventId", req.EventId, "type", req.Type, "key", req.Key)
 
-	if s.proposer.LeaderID() == 0 {
-		slog.Warn("no leader available", "eventId", req.EventId)
-		return nil, ErrNoLeader
+	if s.proposer.LeaderID() == uint64(0) {
+		return nil, coordinator.ErrNoLeader
 	}
 
-	respCh, err := s.batcher.Submit(ctx, req)
+	if !s.proposer.IsLeader() {
+		return nil, coordinator.ErrNotLeader
+	}
+
+	respCh, err := s.Batcher.Submit(ctx, req)
 	if err != nil {
 		slog.Warn("submit to batcher failed", "eventId", req.EventId, "error", err)
 		return nil, err
@@ -141,7 +156,7 @@ func (s *Service) write(
 	}
 }
 
-func (s *Service) validate(req *commandeventspb.CommandEventRequest) error {
+func (s *Processor) validate(req *commandeventspb.CommandEventRequest) error {
 	if req.Key == "" {
 		return fmt.Errorf("%w: key is required", ErrInvalidCommand)
 	}
@@ -162,10 +177,10 @@ func (s *Service) validate(req *commandeventspb.CommandEventRequest) error {
 	return nil
 }
 
-func (s *Service) HandleApplied(eventID uint64, resp *commandeventspb.CommandEventResponse) {
-	s.mu.RLock()
-	ch, ok := s.pending[eventID]
-	s.mu.RUnlock()
+func (s *Processor) HandleApplied(eventID uint64, resp *commandeventspb.CommandEventResponse) {
+	s.Mu.RLock()
+	ch, ok := s.Pending[eventID]
+	s.Mu.RUnlock()
 
 	if ok {
 		slog.Debug("command applied", "eventId", eventID, "success", resp.Success)
@@ -179,20 +194,20 @@ func (s *Service) HandleApplied(eventID uint64, resp *commandeventspb.CommandEve
 	}
 }
 
-func (s *Service) Register(eventID uint64, ch chan *commandeventspb.CommandEventResponse) {
-	s.mu.Lock()
-	s.pending[eventID] = ch
-	s.mu.Unlock()
+func (s *Processor) Register(eventID uint64, ch chan *commandeventspb.CommandEventResponse) {
+	s.Mu.Lock()
+	s.Pending[eventID] = ch
+	s.Mu.Unlock()
 	slog.Debug("registered pending command", "eventId", eventID)
 }
 
-func (s *Service) Unregister(eventID uint64) {
-	s.mu.Lock()
-	delete(s.pending, eventID)
-	s.mu.Unlock()
+func (s *Processor) Unregister(eventID uint64) {
+	s.Mu.Lock()
+	delete(s.Pending, eventID)
+	s.Mu.Unlock()
 	slog.Debug("unregistered pending command", "eventId", eventID)
 }
 
-func (s *Service) NodeID() uint64 {
+func (s *Processor) NodeID() uint64 {
 	return s.proposer.NodeID()
 }

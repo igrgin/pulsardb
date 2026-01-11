@@ -15,7 +15,7 @@ import (
 func TestCmdService_ConcurrentWritesDifferentKeys(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestCmdService_ConcurrentWritesDifferentKeys(t *testing.T) {
 func TestCmdService_ConcurrentWritesSameKey(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestCmdService_ConcurrentWritesSameKey(t *testing.T) {
 func TestCmdService_BulkOperations(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestCmdService_BulkOperations(t *testing.T) {
 func TestCmdService_ConcurrentReadsAndWrites(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)

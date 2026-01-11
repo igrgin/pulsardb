@@ -12,7 +12,7 @@ import (
 
 func TestCmdService_LeaderFailover(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	leaderID, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestCmdService_LeaderFailover(t *testing.T) {
 
 func TestCmdService_NodeRestart(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "debug")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -84,7 +84,7 @@ func TestCmdService_NodeRestart(t *testing.T) {
 
 func TestCmdService_MultipleFailovers(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(5, 10)
+	cluster.StartNodes(5, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -115,7 +115,7 @@ func TestCmdService_MultipleFailovers(t *testing.T) {
 
 func TestCmdService_FollowerRestart_CatchUp(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

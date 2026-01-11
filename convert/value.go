@@ -21,7 +21,12 @@ func FromCommandProto(v *commandeventspb.CommandEventValue) any {
 	case *commandeventspb.CommandEventValue_BoolValue:
 		return val.BoolValue
 	case *commandeventspb.CommandEventValue_BytesValue:
-		return val.BytesValue
+		if val.BytesValue == nil {
+			return []byte(nil)
+		}
+		b := make([]byte, len(val.BytesValue))
+		copy(b, val.BytesValue)
+		return b
 	default:
 		return nil
 	}
@@ -43,7 +48,11 @@ func ToCommandProto(v any) *commandeventspb.CommandEventValue {
 	case bool:
 		return &commandeventspb.CommandEventValue{Value: &commandeventspb.CommandEventValue_BoolValue{BoolValue: val}}
 	case []byte:
-		return &commandeventspb.CommandEventValue{Value: &commandeventspb.CommandEventValue_BytesValue{BytesValue: val}}
+		b := make([]byte, len(val))
+		copy(b, val)
+		return &commandeventspb.CommandEventValue{
+			Value: &commandeventspb.CommandEventValue_BytesValue{BytesValue: b},
+		}
 	default:
 		return nil
 	}
@@ -62,7 +71,9 @@ func ToSnapshotProto(v any) (*snapshotpb.Value, error) {
 	case bool:
 		return &snapshotpb.Value{Kind: &snapshotpb.Value_BoolValue{BoolValue: val}}, nil
 	case []byte:
-		return &snapshotpb.Value{Kind: &snapshotpb.Value_BytesValue{BytesValue: val}}, nil
+		b := make([]byte, len(val))
+		copy(b, val)
+		return &snapshotpb.Value{Kind: &snapshotpb.Value_BytesValue{BytesValue: b}}, nil
 	default:
 		return nil, fmt.Errorf("unsupported type %T", v)
 	}
@@ -82,7 +93,10 @@ func FromSnapshotProto(v *snapshotpb.Value) any {
 	case *snapshotpb.Value_BoolValue:
 		return k.BoolValue
 	case *snapshotpb.Value_BytesValue:
-		return k.BytesValue
+		b := k.BytesValue
+		out := make([]byte, len(b))
+		copy(out, b)
+		return out
 	default:
 		return nil
 	}

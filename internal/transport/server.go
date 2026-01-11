@@ -7,7 +7,7 @@ import (
 	"pulsardb/internal/configuration"
 	"pulsardb/internal/metrics"
 
-	"pulsardb/internal/transport/gen/command"
+	commandeventspb "pulsardb/internal/transport/gen/command"
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
 	"pulsardb/internal/transport/handler"
 
@@ -35,27 +35,32 @@ func NewServer(
 	cmdProcessor handler.CommandProcessor,
 	raftHandler handler.RaftHandler,
 ) *Server {
-	s := &Server{cfg: ServerConfig{Network: cfg.Network, Address: cfg.Address, ClientPort: cfg.ClientPort, RaftPort: cfg.RaftPort}}
+	s := &Server{cfg: ServerConfig{
+		Network:    cfg.Network,
+		Address:    cfg.Address,
+		ClientPort: cfg.ClientPort,
+		RaftPort:   cfg.RaftPort,
+	}}
 
-	RaftOpts := []grpc.ServerOption{
+	raftOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(cfg.RaftTransportConfig.MaxConcurrentStreams),
 		grpc.NumStreamWorkers(cfg.RaftTransportConfig.NumStreamWorkers),
 		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
 	}
-	ClientOpts := []grpc.ServerOption{
+	clientOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(cfg.ClientTransportConfig.MaxConcurrentStreams),
 		grpc.NumStreamWorkers(cfg.ClientTransportConfig.NumStreamWorkers),
 		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
 	}
 
-	s.clientServer = grpc.NewServer(ClientOpts...)
+	s.clientServer = grpc.NewServer(clientOpts...)
 	commandeventspb.RegisterCommandEventClientServiceServer(
 		s.clientServer,
 		handler.NewCommandHandler(cmdProcessor),
 	)
 	reflection.Register(s.clientServer)
 
-	s.raftServer = grpc.NewServer(RaftOpts...)
+	s.raftServer = grpc.NewServer(raftOpts...)
 	rafttransportpb.RegisterRaftTransportServiceServer(
 		s.raftServer,
 		handler.NewRaftTransportHandler(raftHandler),
@@ -67,10 +72,6 @@ func NewServer(
 
 func (s *Server) StartRaft() error {
 	network := s.cfg.Network
-	if network == "" {
-		network = "tcp"
-	}
-
 	addr := net.JoinHostPort(s.cfg.Address, s.cfg.RaftPort)
 	lis, err := net.Listen(network, addr)
 	if err != nil {

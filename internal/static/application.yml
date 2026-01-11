@@ -2,6 +2,7 @@ app:
   profile: ${APP_PROFILE}
   log-level: info
   quorum-wait-time: 30 # seconds
+  advertise-ip: 127.0.0.1
 
 metrics:
   enabled: true
@@ -17,18 +18,24 @@ transport:
     max-concurrent-streams: 100
     num-stream-workers: 24
 
-raft:
+command:
   batch-size: 35
   batch-max-wait: 20ms
+  cleanup-tick-interval: 100ms
+
+raft:
   tick-interval: 100ms
   snap-count: 30_000 # Snapshot every X entries
   timeout: 10s # seconds
   step-inbox-size: 4096
-  send-queue-size: 1024
+  send-queue-size: 2048
   promotion-threshold: 100
   promotion-check-interval: 5s
   service-drain-timeout: 5s
   node-drain-timeout: 5s
+  lease-based-read: true
+  check-quorum: true
+  pre-vote: true
   etcd:
     election-tick: 10
     heartbeat-tick: 1

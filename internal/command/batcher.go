@@ -29,9 +29,9 @@ type Batcher struct {
 	maxSize  int
 	maxWait  time.Duration
 
-	mu      sync.Mutex
-	pending []pendingCmd
-	timer   *time.Timer
+	Mu      sync.Mutex
+	Pending []pendingCmd
+	Timer   *time.Timer
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -43,12 +43,12 @@ func NewBatcher(proposer domain.Consensus, registry PendingRegistry, cfg BatchCo
 		registry: registry,
 		maxSize:  cfg.MaxSize,
 		maxWait:  cfg.MaxWait,
-		pending:  make([]pendingCmd, 0, cfg.MaxSize),
+		Pending:  make([]pendingCmd, 0, cfg.MaxSize),
 		stopCh:   make(chan struct{}),
 	}
 
 	b.wg.Add(1)
-	go b.cleanupLoop()
+	go b.cleanupLoop(cfg.CleanupTickInterval)
 
 	slog.Info("batcher started", "maxSize", cfg.MaxSize, "maxWait", b.maxWait)
 	return b
@@ -61,10 +61,10 @@ func (b *Batcher) Stop() {
 	slog.Info("batcher stopped")
 }
 
-func (b *Batcher) cleanupLoop() {
+func (b *Batcher) cleanupLoop(cleanupTickInterval time.Duration) {
 	defer b.wg.Done()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(cleanupTickInterval)
 	defer ticker.Stop()
 
 	for {
@@ -78,31 +78,31 @@ func (b *Batcher) cleanupLoop() {
 }
 
 func (b *Batcher) cleanupExpired() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.Mu.Lock()
+	defer b.Mu.Unlock()
 
-	if len(b.pending) == 0 {
+	if len(b.Pending) == 0 {
 		return
 	}
 
-	before := len(b.pending)
-	alive := b.pending[:0]
-	for _, p := range b.pending {
+	before := len(b.Pending)
+	alive := b.Pending[:0]
+	for _, p := range b.Pending {
 		if p.ctx.Err() == nil {
 			alive = append(alive, p)
 		}
 	}
-	b.pending = alive
+	b.Pending = alive
 
 	if expired := before - len(alive); expired > 0 {
-		slog.Debug("cleaned up expired commands", "expired", expired, "remaining", len(alive))
+		slog.Info("cleaned up expired commands", "expired", expired, "remaining", len(alive))
 	}
 
-	metrics.BatchPendingCommands.Set(float64(len(b.pending)))
+	metrics.BatchPendingCommands.Set(float64(len(b.Pending)))
 
-	if len(b.pending) == 0 && b.timer != nil {
-		b.timer.Stop()
-		b.timer = nil
+	if len(b.Pending) == 0 && b.Timer != nil {
+		b.Timer.Stop()
+		b.Timer = nil
 	}
 }
 
@@ -117,32 +117,32 @@ func (b *Batcher) Submit(
 
 	respCh := make(chan *commandeventspb.CommandEventResponse, 1)
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.Mu.Lock()
+	defer b.Mu.Unlock()
 
-	b.pending = append(b.pending, pendingCmd{
+	b.Pending = append(b.Pending, pendingCmd{
 		ctx:  ctx,
 		req:  req,
 		resp: respCh,
 	})
 
-	metrics.BatchPendingCommands.Set(float64(len(b.pending)))
+	metrics.BatchPendingCommands.Set(float64(len(b.Pending)))
 
-	slog.Debug("command submitted", "eventId", req.EventId, "pending", len(b.pending))
+	slog.Debug("command submitted", "eventId", req.EventId, "pending", len(b.Pending))
 
-	if len(b.pending) >= b.maxSize {
-		slog.Debug("batch full, flushing", "size", len(b.pending))
+	if len(b.Pending) >= b.maxSize {
+		slog.Debug("batch full, flushing", "size", len(b.Pending))
 		metrics.BatchFlushTotal.WithLabelValues("full").Inc()
 		b.flushLocked()
 		return respCh, nil
 	}
 
-	if len(b.pending) == 1 {
-		b.timer = time.AfterFunc(b.maxWait, func() {
-			b.mu.Lock()
-			defer b.mu.Unlock()
-			if len(b.pending) > 0 {
-				slog.Debug("batch timer expired, flushing", "size", len(b.pending))
+	if len(b.Pending) == 1 {
+		b.Timer = time.AfterFunc(b.maxWait, func() {
+			b.Mu.Lock()
+			defer b.Mu.Unlock()
+			if len(b.Pending) > 0 {
+				slog.Debug("batch timer expired, flushing", "size", len(b.Pending))
 				metrics.BatchFlushTotal.WithLabelValues("timeout").Inc()
 				b.flushLocked()
 			}
@@ -153,17 +153,17 @@ func (b *Batcher) Submit(
 }
 
 func (b *Batcher) flushLocked() {
-	if len(b.pending) == 0 {
+	if len(b.Pending) == 0 {
 		return
 	}
 
-	if b.timer != nil {
-		b.timer.Stop()
-		b.timer = nil
+	if b.Timer != nil {
+		b.Timer.Stop()
+		b.Timer = nil
 	}
 
-	alive := make([]pendingCmd, 0, len(b.pending))
-	for _, p := range b.pending {
+	alive := make([]pendingCmd, 0, len(b.Pending))
+	for _, p := range b.Pending {
 		if p.ctx.Err() == nil {
 			alive = append(alive, p)
 		}
@@ -171,13 +171,13 @@ func (b *Batcher) flushLocked() {
 
 	if len(alive) == 0 {
 		slog.Debug("flush skipped: all commands expired")
-		b.pending = make([]pendingCmd, 0, b.maxSize)
+		b.Pending = make([]pendingCmd, 0, b.maxSize)
 		metrics.BatchPendingCommands.Set(0)
 		return
 	}
 
 	batch := alive
-	b.pending = make([]pendingCmd, 0, b.maxSize)
+	b.Pending = make([]pendingCmd, 0, b.maxSize)
 	metrics.BatchPendingCommands.Set(0)
 
 	metrics.BatchSize.Observe(float64(len(batch)))

@@ -30,6 +30,10 @@ const (
 	walFolder      = "wal"
 )
 
+type Marshallable interface {
+	Marshal() ([]byte, error)
+}
+
 type Storage struct {
 	mu sync.Mutex
 
@@ -515,7 +519,7 @@ func (s *Storage) cleanupOldSnapshots(keepAfterIndex uint64) {
 	}
 }
 
-func (s *Storage) appendRecordLocked(recType byte, msg interface{ Marshal() ([]byte, error) }) error {
+func (s *Storage) appendRecordLocked(recType byte, msg Marshallable) error {
 	payload, err := msg.Marshal()
 	if err != nil {
 		return fmt.Errorf("marshal record: %w", err)

@@ -13,7 +13,7 @@ import (
 func TestAddNodeToCluster(t *testing.T) {
 	c := helper.NewCluster(t, nil, "debug")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -45,7 +45,7 @@ func TestAddNodeToCluster(t *testing.T) {
 	require.NotNil(t, leader)
 	require.Equal(t, leaderID, leader.ID)
 
-	if err := leader.RaftService.ProposeAddNode(ctx, newNodeID, newRaftAddr); err != nil {
+	if err := leader.Coordinator.ProposeAddNode(ctx, newNodeID, newRaftAddr, newClientAddr); err != nil {
 		t.Fatalf("ProposeAddNode failed: %v", err)
 	}
 
@@ -102,13 +102,13 @@ func TestAddNodeToCluster(t *testing.T) {
 		}
 	}
 
-	t.Logf("New node applied index: %d", newNode.RaftService.LastApplied())
+	t.Logf("New node applied index: %d", newNode.Coordinator.LastApplied())
 }
 
 func TestRemoveNodeFromCluster(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(5, 60)
+	c.StartNodes(5, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestRemoveNodeFromCluster(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.ProposeRemoveNode(ctx, victimID); err != nil {
+	if err := leader.Coordinator.ProposeRemoveNode(ctx, victimID); err != nil {
 		t.Fatalf("ProposeRemoveNode failed: %v", err)
 	}
 
@@ -173,7 +173,7 @@ func TestRemoveNodeFromCluster(t *testing.T) {
 func TestRemoveLeaderFromCluster(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(5, 60)
+	c.StartNodes(5, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestRemoveLeaderFromCluster(t *testing.T) {
 	newLeader := c.GetLeader()
 	require.NotNil(t, newLeader)
 
-	if err := newLeader.RaftService.ProposeRemoveNode(ctx, leaderID); err != nil {
+	if err := newLeader.Coordinator.ProposeRemoveNode(ctx, leaderID); err != nil {
 		t.Fatalf("ProposeRemoveNode for leader failed: %v", err)
 	}
 
@@ -235,7 +235,7 @@ func TestAddLearnerNode(t *testing.T) {
 	}
 	c := helper.NewCluster(t, cfg, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -259,7 +259,7 @@ func TestAddLearnerNode(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.ProposeAddLearner(ctx, learnerID, learnerRaftAddr); err != nil {
+	if err := leader.Coordinator.ProposeAddLearnerNode(ctx, learnerID, learnerRaftAddr, ""); err != nil {
 		t.Fatalf("ProposeAddLearner failed: %v", err)
 	}
 
@@ -294,14 +294,14 @@ func TestAddLearnerNode(t *testing.T) {
 
 	learnerNode := c.GetNode(learnerID)
 	if learnerNode != nil {
-		t.Logf("Learner applied index: %d", learnerNode.RaftService.LastApplied())
+		t.Logf("Learner applied index: %d", learnerNode.Coordinator.LastApplied())
 	}
 }
 
 func TestPromoteLearnerToVoter(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -311,7 +311,7 @@ func TestPromoteLearnerToVoter(t *testing.T) {
 	defer cancel()
 
 	learnerID := uint64(4)
-	learnerRaftAddr, _, err := c.AddNewNode(learnerID)
+	learnerRaftAddr, learnerClientAddr, err := c.AddNewNode(learnerID)
 	if err != nil {
 		t.Fatalf("failed to add learner node: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestPromoteLearnerToVoter(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.ProposeAddLearner(ctx, learnerID, learnerRaftAddr); err != nil {
+	if err := leader.Coordinator.ProposeAddLearnerNode(ctx, learnerID, learnerRaftAddr, learnerClientAddr); err != nil {
 		t.Fatalf("ProposeAddLearner failed: %v", err)
 	}
 
@@ -333,7 +333,7 @@ func TestPromoteLearnerToVoter(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	if err := leader.RaftService.ProposeAddNode(ctx, learnerID, learnerRaftAddr); err != nil {
+	if err := leader.Coordinator.ProposeAddNode(ctx, learnerID, learnerRaftAddr, learnerClientAddr); err != nil {
 		t.Fatalf("ProposeAddNode (promote) failed: %v", err)
 	}
 
@@ -370,7 +370,7 @@ func TestPromoteLearnerToVoter(t *testing.T) {
 func TestRemoveLearnerFromCluster(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -380,7 +380,7 @@ func TestRemoveLearnerFromCluster(t *testing.T) {
 	defer cancel()
 
 	learnerID := uint64(4)
-	learnerRaftAddr, _, err := c.AddNewNode(learnerID)
+	learnerRaftAddr, learnerClientAddr, err := c.AddNewNode(learnerID)
 	if err != nil {
 		t.Fatalf("failed to add learner node: %v", err)
 	}
@@ -388,13 +388,13 @@ func TestRemoveLearnerFromCluster(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.ProposeAddLearner(ctx, learnerID, learnerRaftAddr); err != nil {
+	if err := leader.Coordinator.ProposeAddLearnerNode(ctx, learnerID, learnerRaftAddr, learnerClientAddr); err != nil {
 		t.Fatalf("ProposeAddLearner failed: %v", err)
 	}
 
 	time.Sleep(2 * time.Second)
 
-	if err := leader.RaftService.ProposeRemoveNode(ctx, learnerID); err != nil {
+	if err := leader.Coordinator.ProposeRemoveNode(ctx, learnerID); err != nil {
 		t.Fatalf("ProposeRemoveNode failed: %v", err)
 	}
 
@@ -414,7 +414,7 @@ func TestRemoveLearnerFromCluster(t *testing.T) {
 func TestAddRemoveMultipleNodes(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -427,14 +427,14 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 	require.NotNil(t, leader)
 
 	for newID := uint64(4); newID <= 5; newID++ {
-		newRaftAddr, _, err := c.AddNewNode(newID)
+		newRaftAddr, newClientAddr, err := c.AddNewNode(newID)
 		if err != nil {
 			t.Fatalf("failed to add node %d: %v", newID, err)
 		}
 
-		targetApplied := leader.RaftService.LastApplied()
+		targetApplied := leader.Coordinator.LastApplied()
 
-		if err := leader.RaftService.ProposeAddNode(ctx, newID, newRaftAddr); err != nil {
+		if err := leader.Coordinator.ProposeAddNode(ctx, newID, newRaftAddr, newClientAddr); err != nil {
 			t.Fatalf("ProposeAddNode for %d failed: %v", newID, err)
 		}
 
@@ -456,10 +456,10 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 		require.NotNil(t, newNode, "new node %d not found", newID)
 
 		require.Eventually(t, func() bool {
-			return newNode.RaftService.LastApplied() >= targetApplied
+			return newNode.Coordinator.LastApplied() >= targetApplied
 		}, 10*time.Second, 100*time.Millisecond, "node %d didn't catch up to index %d", newID, targetApplied)
 
-		t.Logf("Added node %d, applied index: %d", newID, newNode.RaftService.LastApplied())
+		t.Logf("Added node %d, applied index: %d", newID, newNode.Coordinator.LastApplied())
 	}
 
 	confState := leader.RaftNode.ConfState()
@@ -473,7 +473,7 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 		}
 	}
 
-	targetIndex := c.GetLeader().RaftService.LastApplied()
+	targetIndex := c.GetLeader().Coordinator.LastApplied()
 	if err := c.WaitForApplied(targetIndex, 30*time.Second); err != nil {
 		t.Fatalf("convergence failed before removals: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 		leaderNode := c.GetNode(leaderID)
 		require.NotNil(t, leaderNode)
 
-		require.NoError(t, leaderNode.RaftService.ProposeRemoveNode(ctx, removeID))
+		require.NoError(t, leaderNode.Coordinator.ProposeRemoveNode(ctx, removeID))
 
 		require.Eventually(t, func() bool {
 			currentLeader := c.GetLeader()
@@ -524,7 +524,7 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 func TestMembershipChangeNotLeader(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -538,14 +538,14 @@ func TestMembershipChangeNotLeader(t *testing.T) {
 
 	follower := followers[0]
 
-	err := follower.RaftService.ProposeAddNode(ctx, 99, "127.0.0.1:99999")
+	err := follower.Coordinator.ProposeAddNode(ctx, 99, "127.0.0.1:99999", "127.0.0.1:11111")
 	if err == nil {
 		t.Error("ProposeAddNode from follower should have failed")
 	} else {
 		t.Logf("ProposeAddNode from follower correctly failed: %v", err)
 	}
 
-	err = follower.RaftService.ProposeRemoveNode(ctx, 1)
+	err = follower.Coordinator.ProposeRemoveNode(ctx, 1)
 	if err == nil {
 		t.Error("ProposeRemoveNode from follower should have failed")
 	} else {
@@ -556,7 +556,7 @@ func TestMembershipChangeNotLeader(t *testing.T) {
 func TestClusterSurvivesNodeRemovalDuringWrites(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(5, 60)
+	c.StartNodes(5, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -590,7 +590,7 @@ func TestClusterSurvivesNodeRemovalDuringWrites(t *testing.T) {
 	victimID := followers[0].ID
 	t.Logf("Removing node %d during writes", victimID)
 
-	if err := leader.RaftService.ProposeRemoveNode(ctx, victimID); err != nil {
+	if err := leader.Coordinator.ProposeRemoveNode(ctx, victimID); err != nil {
 		t.Logf("ProposeRemoveNode failed (may be expected): %v", err)
 	}
 
@@ -613,7 +613,7 @@ func TestClusterSurvivesNodeRemovalDuringWrites(t *testing.T) {
 func TestNewNodeGetsSnapshotOnJoin(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -622,7 +622,7 @@ func TestNewNodeGetsSnapshotOnJoin(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 120; i++ {
 		if err := c.Set(ctx, fmt.Sprintf("snap-join-key-%d", i), fmt.Sprintf("value-%d", i)); err != nil {
 			t.Fatalf("propose failed: %v", err)
 		}
@@ -631,36 +631,80 @@ func TestNewNodeGetsSnapshotOnJoin(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.TriggerSnapshot(10); err != nil {
-		t.Fatalf("TriggerSnapshot failed: %v", err)
-	}
+	require.NoError(t, leader.Coordinator.TriggerSnapshot())
+	_ = leader.RaftNode.Storage().Compact(80)
 
-	if err := leader.RaftNode.Storage().Compact(80); err != nil {
-		t.Logf("compact warning: %v", err)
-	}
-
-	snapIndex := leader.RaftNode.Storage().SnapshotIndex()
-	t.Logf("Leader snapshot at index %d", snapIndex)
+	baseSnap := leader.RaftNode.Storage().SnapshotIndex()
+	t.Logf("Initial leader snapshot at index %d", baseSnap)
 
 	newNodeID := uint64(4)
-	newRaftAddr, _, err := c.AddNewNode(newNodeID)
+	newRaftAddr, newClientAddr, err := c.AddNewNode(newNodeID)
 	if err != nil {
 		t.Fatalf("failed to add new node: %v", err)
 	}
 
-	if err := leader.RaftService.ProposeAddNode(ctx, newNodeID, newRaftAddr); err != nil {
-		t.Fatalf("ProposeAddNode failed: %v", err)
+	require.NoError(t, c.StopNode(newNodeID))
+	for id := uint64(1); id <= 3; id++ {
+		require.NoError(t, c.StopNode(id))
 	}
 
-	targetApplied := leader.RaftService.LastApplied()
-	if err := c.WaitForApplied(targetApplied, 20*time.Second); err != nil {
-		t.Fatalf("new node failed to catch up: %v", err)
+	time.Sleep(500 * time.Millisecond)
+
+	for id := uint64(1); id <= 3; id++ {
+		require.NoError(t, c.RestartNode(id), "restart node %d failed", id)
 	}
+
+	if _, err := c.WaitForLeader(15 * time.Second); err != nil {
+		t.Fatalf("failed to elect leader after restart: %v", err)
+	}
+	leader = c.GetLeader()
+	require.NotNil(t, leader)
+
+	require.NoError(t, c.RestartNodeAfterDataLoss(newNodeID))
+
+	if err := leader.Coordinator.ProposeAddLearnerNode(ctx, newNodeID, newRaftAddr, newClientAddr); err != nil {
+		t.Fatalf("ProposeAddLearnerNode failed: %v", err)
+	}
+
+	require.Eventually(t, func() bool {
+		cs := leader.RaftNode.ConfState()
+		for _, l := range cs.Learners {
+			if l == newNodeID {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 50*time.Millisecond)
+
+	cs := leader.RaftNode.ConfState()
+	t.Logf("After add-learner - Voters: %v, Learners: %v", cs.Voters, cs.Learners)
+
+	for i := 0; i < 20; i++ {
+		if err := c.Set(ctx, fmt.Sprintf("snap-join-postadd-%d", i), fmt.Sprintf("v-%d", i)); err != nil {
+			t.Fatalf("propose failed: %v", err)
+		}
+	}
+
+	require.NoError(t, leader.Coordinator.TriggerSnapshot())
+
+	var snapIndex uint64
+	require.Eventually(t, func() bool {
+		snapIndex = leader.RaftNode.Storage().SnapshotIndex()
+		return snapIndex > baseSnap
+	}, 10*time.Second, 50*time.Millisecond)
+
+	t.Logf("Fresh leader snapshot at index %d (after learner add)", snapIndex)
 
 	newNode := c.GetNode(newNodeID)
 	require.NotNil(t, newNode)
 
-	for i := 90; i < 100; i++ {
+	require.Eventually(t, func() bool {
+		return newNode.Coordinator.LastApplied() >= snapIndex
+	}, 30*time.Second, 100*time.Millisecond, "new node %d failed to catch up via snapshot: lastApplied=%d want>=%d",
+		newNodeID, newNode.Coordinator.LastApplied(), snapIndex,
+	)
+
+	for i := 100; i < 120; i++ {
 		key := fmt.Sprintf("snap-join-key-%d", i)
 		val, exists := newNode.StorageService.Get(key)
 		if !exists {
@@ -678,13 +722,17 @@ func TestNewNodeGetsSnapshotOnJoin(t *testing.T) {
 		}
 	}
 
-	t.Logf("New node applied: %d, snap index: %d", newNode.RaftService.LastApplied(), newNode.RaftNode.Storage().SnapshotIndex())
+	t.Logf("New node applied=%d, leaderSnap=%d, nodeSnap=%d",
+		newNode.Coordinator.LastApplied(),
+		leader.RaftNode.Storage().SnapshotIndex(),
+		newNode.RaftNode.Storage().SnapshotIndex(),
+	)
 }
 
 func TestConfStatePersistsAcrossRestart(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -697,12 +745,12 @@ func TestConfStatePersistsAcrossRestart(t *testing.T) {
 	require.NotNil(t, leader)
 
 	newNodeID := uint64(4)
-	newRaftAddr, _, err := c.AddNewNode(newNodeID)
+	newRaftAddr, newClientAddr, err := c.AddNewNode(newNodeID)
 	if err != nil {
 		t.Fatalf("failed to add node: %v", err)
 	}
 
-	if err := leader.RaftService.ProposeAddNode(ctx, newNodeID, newRaftAddr); err != nil {
+	if err := leader.Coordinator.ProposeAddNode(ctx, newNodeID, newRaftAddr, newClientAddr); err != nil {
 		t.Fatalf("ProposeAddNode failed: %v", err)
 	}
 

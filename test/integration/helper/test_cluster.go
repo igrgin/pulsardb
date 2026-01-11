@@ -8,16 +8,17 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"pulsardb/convert"
 	"pulsardb/internal/command"
 	"pulsardb/internal/configuration"
 	"pulsardb/internal/logging"
 	"pulsardb/internal/metrics"
 	"pulsardb/internal/raft"
+	"pulsardb/internal/raft/coordinator"
 	"pulsardb/internal/statemachine"
 	"pulsardb/internal/storage"
+	"pulsardb/internal/transport"
 	command2 "pulsardb/internal/transport/gen/command"
-	rafttransportpb "pulsardb/internal/transport/gen/raft"
-	"pulsardb/internal/transport/handler"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -26,24 +27,25 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
 var nextEventID atomic.Uint64
-var nextPortBase = 30000 + rand.IntN(os.Getpid()%10000)
-var portMu sync.Mutex
+var nextPortBase atomic.Uint64
 
 func NewEventID() uint64 {
 	return nextEventID.Add(1)
 }
 
 func allocPort() int {
-	portMu.Lock()
-	defer portMu.Unlock()
-	port := nextPortBase
-	nextPortBase++
-	return port
+	if nextPortBase.Load() == 0 {
+		nextPortBase.Add(uint64(30000 + rand.IntN(os.Getpid()%10000)))
+	}
+	port := +nextPortBase.Load()
+	nextPortBase.Add(1)
+	return int(port)
 }
 
 type TestClusterConfig struct {
@@ -53,15 +55,17 @@ type TestClusterConfig struct {
 	BatchWait              time.Duration
 	PromotionThreshold     uint64
 	PromotionCheckInterval time.Duration
+	CleanupTickInterval    time.Duration
 }
 
 var DefaultConfig = TestClusterConfig{
 	TickInterval:           100 * time.Millisecond,
 	ElectionTick:           10,
 	BatchSize:              10,
-	BatchWait:              2,
+	BatchWait:              2 * time.Millisecond,
 	PromotionThreshold:     5,
 	PromotionCheckInterval: 500 * time.Millisecond,
+	CleanupTickInterval:    100 * time.Millisecond,
 }
 
 type Cluster struct {
@@ -70,24 +74,25 @@ type Cluster struct {
 	nodes   map[uint64]*TestNode
 	BaseDir string
 	mu      sync.RWMutex
+	connMu  sync.Mutex
+	conns   map[uint64]*grpc.ClientConn
+	clients map[uint64]command2.CommandEventClientServiceClient
 }
 
 type TestNode struct {
 	ID             uint64
 	RaftNode       *raft.Node
-	RaftService    *raft.Service
-	CmdService     *command.Service
+	Coordinator    *coordinator.Coordinator
+	CmdService     *command.Processor
 	StorageService *storage.Service
 	StateMachine   *statemachine.StateMachine
-	RaftServer     *grpc.Server
-	ClientServer   *grpc.Server
 	RaftAddr       string
 	ClientAddr     string
-	RaftLis        net.Listener
-	ClientLis      net.Listener
+	stopped        bool
+	mu             sync.Mutex
+	IsLeaseBased   bool
 
-	stopped bool
-	mu      sync.Mutex
+	Transport *transport.Server
 }
 
 var initOnce sync.Once
@@ -109,6 +114,8 @@ func NewCluster(t *testing.T, cfg *TestClusterConfig, logLevel string) *Cluster 
 		t:       t,
 		config:  actualCfg,
 		nodes:   make(map[uint64]*TestNode),
+		conns:   make(map[uint64]*grpc.ClientConn),
+		clients: make(map[uint64]command2.CommandEventClientServiceClient),
 		BaseDir: baseDir,
 	}
 
@@ -117,7 +124,7 @@ func NewCluster(t *testing.T, cfg *TestClusterConfig, logLevel string) *Cluster 
 	return c
 }
 
-func (c *Cluster) StartNodes(n int, timeout uint64) {
+func (c *Cluster) StartNodes(n int, timeout uint64, isLeasedBased bool) {
 	raftAddrs := make(map[uint64]string)
 
 	nodeCfgs := make([]struct {
@@ -145,32 +152,28 @@ func (c *Cluster) StartNodes(n int, timeout uint64) {
 			}
 		}
 
-		err := c.StartNode(cfg.id, cfg.raftAddr, cfg.clientAddr, peers, false)
+		err := c.StartNode(cfg.id, cfg.raftAddr, cfg.clientAddr, peers, false, isLeasedBased)
 		require.NoError(c.t, err, "failed to start node %d", cfg.id)
 	}
 	_, err := c.WaitForLeader(time.Duration(timeout) * time.Second)
-	if err != nil {
-		return
-	}
-}
-
-func defaultGRPCServerOptions() []grpc.ServerOption {
-	return []grpc.ServerOption{
-		grpc.MaxConcurrentStreams(100),
-		grpc.NumStreamWorkers(4),
-		grpc.ChainUnaryInterceptor(metrics.UnaryServerInterceptor()),
-	}
+	require.NoError(c.t, err, "timeout waiting for leader")
 }
 
 func (c *Cluster) StartNode(
 	id uint64,
 	raftAddr, clientAddr string,
 	raftPeers map[uint64]string,
-	join bool,
+	join, isLeaseBased bool,
 ) error {
 	nodeDir := filepath.Join(c.BaseDir, fmt.Sprintf("node-%d", id))
 	if err := os.MkdirAll(nodeDir, 0o750); err != nil {
 		return err
+	}
+
+	cc := &configuration.CommandConfigurationProperties{
+		BatchSize:           c.config.BatchSize,
+		BatchMaxWait:        c.config.BatchWait,
+		CleanupTickInterval: c.config.CleanupTickInterval,
 	}
 
 	rc := &configuration.RaftConfigurationProperties{
@@ -180,8 +183,6 @@ func (c *Cluster) StartNode(
 		TickInterval:           c.config.TickInterval,
 		Timeout:                5 * time.Second,
 		SnapCount:              1000,
-		BatchSize:              c.config.BatchSize,
-		BatchMaxWait:           c.config.BatchWait,
 		SendQueueSize:          256,
 		Join:                   join,
 		PromotionThreshold:     c.config.PromotionThreshold,
@@ -193,6 +194,11 @@ func (c *Cluster) StartNode(
 		Wal: configuration.WriteAheadLogProperties{
 			NoSync: true,
 		},
+		ServiceDrainTimeout: 1 * time.Second,
+		NodeDrainTimeout:    1 * time.Second,
+		LeaseBasedRead:      isLeaseBased,
+		CheckQuorum:         true,
+		PreVote:             true,
 	}
 
 	storageSvc := storage.NewService()
@@ -203,68 +209,86 @@ func (c *Cluster) StartNode(
 		return fmt.Errorf("new raft node: %w", err)
 	}
 
-	raftSvc := raft.NewService(raftNode, storageSvc, sm, rc, raftAddr)
-
 	batchCfg := command.BatchConfig{
-		MaxSize: rc.BatchSize,
-		MaxWait: rc.BatchMaxWait,
+		MaxSize:             cc.BatchSize,
+		MaxWait:             cc.BatchMaxWait,
+		CleanupTickInterval: cc.CleanupTickInterval,
 	}
 
-	cmdSvc := command.NewService(storageSvc, raftSvc, batchCfg)
+	raftHost, raftPort, err := net.SplitHostPort(raftAddr)
+	if err != nil {
+		raftNode.Stop()
+		return fmt.Errorf("split raft addr %q: %w", raftAddr, err)
+	}
+	clientHost, clientPort, err := net.SplitHostPort(clientAddr)
+	if err != nil {
+		raftNode.Stop()
+		return fmt.Errorf("split client addr %q: %w", clientAddr, err)
+	}
+	if raftHost != clientHost {
+		raftNode.Stop()
+		return fmt.Errorf("mismatched hosts: raft host=%q client host=%q", raftHost, clientHost)
+	}
+
+	tc := &configuration.TransportConfigurationProperties{
+		Network:    "tcp",
+		Address:    clientHost,
+		RaftPort:   raftPort,
+		ClientPort: clientPort,
+
+		RaftTransportConfig: configuration.RaftTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     4,
+		},
+		ClientTransportConfig: configuration.ClientTransportConfigProperties{
+			MaxConcurrentStreams: 100,
+			NumStreamWorkers:     4,
+		},
+	}
+
+	raftNodeAdapter := coordinator.NewRaftNodeAdapter(raftNode)
+	transportAdapter := coordinator.NewTransportAdapter(raftNode)
+
+	Coordinator := coordinator.New(
+		raftNodeAdapter,
+		transportAdapter,
+		storageSvc,
+		sm,
+		coordinator.NewConfigFromProperties(rc, raftAddr, clientAddr),
+	)
+	cmdSvc := command.NewProcessor(storageSvc, Coordinator, batchCfg)
 	sm.OnApply(cmdSvc.HandleApplied)
 
-	raftLis, err := net.Listen("tcp", raftAddr)
-	if err != nil {
+	ts := transport.NewServer(tc, cmdSvc, Coordinator)
+
+	if err := ts.StartRaft(); err != nil {
 		raftNode.Stop()
-		return fmt.Errorf("listen raft: %w", err)
+		return fmt.Errorf("start raft transport: %w", err)
+	}
+	if err := ts.StartClient(); err != nil {
+		ts.Stop()
+		raftNode.Stop()
+		return fmt.Errorf("start client transport: %w", err)
 	}
 
-	clientLis, err := net.Listen("tcp", clientAddr)
-	if err != nil {
-		raftLis.Close()
-		raftNode.Stop()
-		return fmt.Errorf("listen client: %w", err)
-	}
-
-	raftServer := grpc.NewServer(defaultGRPCServerOptions()...)
-	clientServer := grpc.NewServer(defaultGRPCServerOptions()...)
-
-	rafttransportpb.RegisterRaftTransportServiceServer(
-		raftServer,
-		handler.NewRaftTransportHandler(raftSvc),
-	)
-	reflection.Register(raftServer)
-
-	command2.RegisterCommandEventClientServiceServer(
-		clientServer,
-		handler.NewCommandHandler(cmdSvc),
-	)
-	reflection.Register(clientServer)
-
-	go raftServer.Serve(raftLis)
+	Coordinator.Start()
 
 	node := &TestNode{
 		ID:             id,
 		RaftNode:       raftNode,
-		RaftService:    raftSvc,
+		Coordinator:    Coordinator,
 		CmdService:     cmdSvc,
 		StorageService: storageSvc,
 		StateMachine:   sm,
-		RaftServer:     raftServer,
-		ClientServer:   clientServer,
 		RaftAddr:       raftAddr,
 		ClientAddr:     clientAddr,
-		RaftLis:        raftLis,
-		ClientLis:      clientLis,
+		Transport:      ts,
+		IsLeaseBased:   rc.LeaseBasedRead,
 	}
 
 	c.mu.Lock()
 	c.nodes[id] = node
 	c.mu.Unlock()
-
-	raftSvc.Start()
-
-	go clientServer.Serve(clientLis)
 
 	return nil
 }
@@ -280,10 +304,9 @@ func (c *Cluster) cleanup() {
 	for _, node := range nodes {
 		node.mu.Lock()
 		if !node.stopped {
-			node.RaftServer.Stop()
-			node.ClientServer.Stop()
+			node.Transport.Stop()
 			node.CmdService.Stop()
-			node.RaftService.Stop()
+			node.Coordinator.Stop()
 			node.stopped = true
 		}
 		node.mu.Unlock()
@@ -306,10 +329,9 @@ func (c *Cluster) RestartNode(id uint64) error {
 	clientAddr := oldNode.ClientAddr
 
 	if !oldNode.stopped {
-		oldNode.RaftServer.GracefulStop()
-		oldNode.ClientServer.GracefulStop()
+		oldNode.Transport.Stop()
 		oldNode.CmdService.Stop()
-		oldNode.RaftService.Stop()
+		oldNode.Coordinator.Stop()
 		oldNode.stopped = true
 	}
 	oldNode.mu.Unlock()
@@ -328,7 +350,7 @@ func (c *Cluster) RestartNode(id uint64) error {
 	delete(c.nodes, id)
 	c.mu.Unlock()
 
-	return c.StartNode(id, raftAddr, clientAddr, raftPeers, false)
+	return c.StartNode(id, raftAddr, clientAddr, raftPeers, false, false)
 }
 
 func (c *Cluster) StopNode(id uint64) error {
@@ -347,10 +369,9 @@ func (c *Cluster) StopNode(id uint64) error {
 		return nil
 	}
 
-	node.RaftServer.GracefulStop()
-	node.ClientServer.GracefulStop()
+	node.Transport.Stop()
 	node.CmdService.Stop()
-	node.RaftService.Stop()
+	node.Coordinator.Stop()
 	node.stopped = true
 
 	return nil
@@ -368,7 +389,7 @@ func (c *Cluster) GetLeader() *TestNode {
 		if stopped {
 			continue
 		}
-		if node.RaftService.IsLeader() {
+		if node.Coordinator.IsLeader() {
 			return node
 		}
 	}
@@ -379,6 +400,12 @@ func (c *Cluster) GetNode(id uint64) *TestNode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.nodes[id]
+}
+
+func (c *Cluster) GetNodes() *map[uint64]*TestNode {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return &c.nodes
 }
 
 func (c *Cluster) WaitForLeader(timeout time.Duration) (uint64, error) {
@@ -435,7 +462,7 @@ func (c *Cluster) WaitForConvergence(timeout time.Duration) error {
 					continue
 				}
 
-				applied := node.RaftService.LastApplied()
+				applied := node.Coordinator.LastApplied()
 				if first {
 					lastApplied = applied
 					first = false
@@ -503,16 +530,9 @@ func (c *Cluster) WaitForLeaderConvergence(timeout time.Duration) (uint64, error
 }
 
 func (c *Cluster) Set(ctx context.Context, key, value string) error {
-	req := &command2.CommandEventRequest{
-		EventId: NewEventID(),
-		Type:    command2.CommandEventType_SET,
-		Key:     key,
-		Value: &command2.CommandEventValue{
-			Value: &command2.CommandEventValue_StringValue{StringValue: value},
-		},
-	}
+	vproto := convert.ToCommandProto(value)
 
-	resp, err := c.SendToLeader(ctx, req)
+	resp, err := c.SetValue(ctx, key, vproto)
 	if err != nil {
 		return err
 	}
@@ -523,13 +543,7 @@ func (c *Cluster) Set(ctx context.Context, key, value string) error {
 }
 
 func (c *Cluster) Get(ctx context.Context, key string) (string, bool, error) {
-	req := &command2.CommandEventRequest{
-		EventId: NewEventID(),
-		Type:    command2.CommandEventType_GET,
-		Key:     key,
-	}
-
-	resp, err := c.SendToLeader(ctx, req)
+	resp, err := c.GetValue(ctx, key)
 	if err != nil {
 		return "", false, err
 	}
@@ -537,11 +551,17 @@ func (c *Cluster) Get(ctx context.Context, key string) (string, bool, error) {
 	if resp.GetError() != nil && resp.GetError().GetCode() == command2.ErrorCode_KEY_NOT_FOUND {
 		return "", false, nil
 	}
-
 	if !resp.Success {
 		return "", false, fmt.Errorf("get failed: %s", resp.GetError().GetMessage())
 	}
-	return resp.GetValue().GetStringValue(), true, nil
+
+	v := convert.FromCommandProto(resp.GetValue())
+
+	s, ok := AsString(v)
+	if !ok {
+		return "", false, fmt.Errorf("get returned non-string value type %T", v)
+	}
+	return s, true, nil
 }
 
 func (c *Cluster) Delete(ctx context.Context, key string) error {
@@ -559,17 +579,6 @@ func (c *Cluster) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("delete failed: %s", resp.GetError().GetMessage())
 	}
 	return nil
-}
-
-func (c *Cluster) SendToLeader(ctx context.Context, req *command2.CommandEventRequest) (*command2.CommandEventResponse, error) {
-	for i := 0; i < 5; i++ {
-		leader := c.GetLeader()
-		if leader != nil {
-			return leader.CmdService.ProcessCommand(ctx, req)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return nil, fmt.Errorf("no leader available")
 }
 
 func (c *Cluster) VerifyConsistency(key string) (bool, error) {
@@ -661,7 +670,7 @@ func (c *Cluster) GetFollowers() []*TestNode {
 
 	var followers []*TestNode
 	for _, node := range c.nodes {
-		if !node.stopped && !node.RaftService.IsLeader() {
+		if !node.stopped && !node.Coordinator.IsLeader() {
 			followers = append(followers, node)
 		}
 	}
@@ -685,8 +694,8 @@ func (c *Cluster) WaitForApplied(index uint64, timeout time.Duration) error {
 			allApplied := true
 			c.mu.RLock()
 			for _, node := range c.nodes {
-				if !node.stopped && node.RaftService.LastApplied() < index {
-					slog.Debug("not yet", "nodeId", node.ID, "lastindex", node.RaftService.NodeID(), "isLeader", node.RaftService.IsLeader())
+				if !node.stopped && node.Coordinator.LastApplied() < index {
+					slog.Debug("not yet", "nodeId", node.ID, "lastindex", node.Coordinator.NodeID(), "isLeader", node.Coordinator.IsLeader())
 					allApplied = false
 					break
 				}
@@ -706,7 +715,7 @@ func (c *Cluster) GetClusterAppliedIndex() uint64 {
 	var maxApplied uint64
 	for _, node := range c.nodes {
 		if !node.stopped {
-			if applied := node.RaftService.LastApplied(); applied > maxApplied {
+			if applied := node.Coordinator.LastApplied(); applied > maxApplied {
 				maxApplied = applied
 			}
 		}
@@ -724,9 +733,9 @@ func (c *Cluster) DeleteNodeData(id uint64) error {
 	return nil
 }
 
-func (c *Cluster) AddNewNode(id uint64) (raftAddr, clientAddr string, err error) {
-	raftAddr = fmt.Sprintf("127.0.0.1:%d", allocPort())
-	clientAddr = fmt.Sprintf("127.0.0.1:%d", allocPort())
+func (c *Cluster) AddNewNode(id uint64) (string, string, error) {
+	raftAddr := fmt.Sprintf("127.0.0.1:%d", allocPort())
+	clientAddr := fmt.Sprintf("127.0.0.1:%d", allocPort())
 
 	raftPeers := make(map[uint64]string)
 
@@ -736,7 +745,7 @@ func (c *Cluster) AddNewNode(id uint64) (raftAddr, clientAddr string, err error)
 	}
 	c.mu.RUnlock()
 
-	if err := c.StartNode(id, raftAddr, clientAddr, raftPeers, true); err != nil {
+	if err := c.StartNode(id, raftAddr, clientAddr, raftPeers, true, false); err != nil {
 		return "", "", err
 	}
 
@@ -795,10 +804,9 @@ func (c *Cluster) RestartNodeAfterDataLoss(id uint64) error {
 	raftAddr := oldNode.RaftAddr
 	clientAddr := oldNode.ClientAddr
 	if !oldNode.stopped {
-		oldNode.RaftServer.GracefulStop()
-		oldNode.ClientServer.GracefulStop()
+		oldNode.Transport.Stop()
 		oldNode.CmdService.Stop()
-		oldNode.RaftService.Stop()
+		oldNode.Coordinator.Stop()
 		oldNode.stopped = true
 	}
 	oldNode.mu.Unlock()
@@ -808,7 +816,7 @@ func (c *Cluster) RestartNodeAfterDataLoss(id uint64) error {
 
 	leader := c.GetLeader()
 	if leader != nil {
-		if err := leader.RaftService.ProposeRemoveNode(ctx, id); err != nil {
+		if err := leader.Coordinator.ProposeRemoveNode(ctx, id); err != nil {
 			slog.Warn("failed to remove node before recovery", "node_id", id, "error", err)
 		}
 
@@ -856,5 +864,113 @@ restart:
 	delete(c.nodes, id)
 	c.mu.Unlock()
 
-	return c.StartNode(id, raftAddr, clientAddr, raftPeers, true)
+	return c.StartNode(id, raftAddr, clientAddr, raftPeers, true, false)
+}
+
+func (c *Cluster) SendToLeader(ctx context.Context, req *command2.CommandEventRequest) (*command2.CommandEventResponse, error) {
+	var targetID uint64
+
+	for i := 0; i < 10; i++ {
+		if targetID == 0 {
+			leader := c.GetLeader()
+			if leader != nil {
+				targetID = leader.ID
+			}
+		}
+		if targetID == 0 {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		client, err := c.getGRPCClientForNode(ctx, targetID)
+		if err != nil {
+			targetID = 0
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		resp, err := client.ProcessCommandEvent(ctx, req)
+		if err == nil {
+			return resp, nil
+		}
+
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.FailedPrecondition {
+			for _, d := range st.Details() {
+				if info, ok := d.(*command2.NotLeaderDetails); ok && info.GetLeaderId() != 0 {
+					targetID = info.GetLeaderId()
+					goto nextAttempt
+				}
+			}
+		}
+
+		if ok && (st.Code() == codes.Unavailable || st.Code() == codes.DeadlineExceeded) {
+			targetID = 0
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		return nil, err
+
+	nextAttempt:
+		continue
+	}
+
+	return nil, fmt.Errorf("no leader available")
+}
+
+func (c *Cluster) SendToNode(ctx context.Context, nodeID uint64, req *command2.CommandEventRequest) (*command2.CommandEventResponse, error) {
+	client, err := c.getGRPCClientForNode(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return client.ProcessCommandEvent(ctx, req)
+}
+
+func (c *Cluster) getGRPCClientForNode(
+	ctx context.Context,
+	nodeID uint64,
+) (command2.CommandEventClientServiceClient, error) {
+	if nodeID == 0 {
+		return nil, fmt.Errorf("invalid node id")
+	}
+
+	c.connMu.Lock()
+	if client, ok := c.clients[nodeID]; ok && client != nil {
+		c.connMu.Unlock()
+		return client, nil
+	}
+	c.connMu.Unlock()
+
+	n := c.GetNode(nodeID)
+	if n == nil {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+	addr := n.ClientAddr
+
+	conn, err := grpc.DialContext(
+		ctx,
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	client := command2.NewCommandEventClientServiceClient(conn)
+
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+
+	if existing := c.conns[nodeID]; existing != nil {
+		_ = conn.Close()
+		if cached, ok := c.clients[nodeID]; ok && cached != nil {
+			return cached, nil
+		}
+		return command2.NewCommandEventClientServiceClient(existing), nil
+	}
+
+	c.conns[nodeID] = conn
+	c.clients[nodeID] = client
+	return client, nil
 }

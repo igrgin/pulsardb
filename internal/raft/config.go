@@ -54,12 +54,24 @@ func newNodeConfig(rc *configuration.RaftConfigurationProperties, localAddr stri
 		MaxUncommittedEntriesSize: maxUncommitted,
 		Logger:                    NewSlogRaftLogger(),
 		Applied:                   appliedIndex,
+		CheckQuorum:               rc.CheckQuorum || rc.LeaseBasedRead,
+		PreVote:                   rc.PreVote,
+		ReadOnlyOption:            readOnlyOption(rc.LeaseBasedRead),
 	}
 
 	var peersList []etcdraft.Peer
 	if !rc.Join {
 		peersList = buildPeersList(rc.NodeID, localAddr, rc.RaftPeers)
 	}
+
+	slog.Info("raft config",
+		"checkQuorum", c.CheckQuorum,
+		"readOnlyOption", c.ReadOnlyOption,
+		"leaseBasedRead", rc.LeaseBasedRead,
+		"electionTick", electionTick,
+		"heartbeatTick", heartbeatTick,
+		"tickInterval", rc.TickInterval,
+	)
 
 	raftNode, err := startOrRestartNode(c, raftStore, peersList, rc.Join)
 	if err != nil {
@@ -71,6 +83,13 @@ func newNodeConfig(rc *configuration.RaftConfigurationProperties, localAddr stri
 		raftNode:     raftNode,
 		appliedIndex: appliedIndex,
 	}, nil
+}
+
+func readOnlyOption(leaseBasedRead bool) etcdraft.ReadOnlyOption {
+	if leaseBasedRead {
+		return etcdraft.ReadOnlyLeaseBased
+	}
+	return etcdraft.ReadOnlySafe
 }
 
 func startOrRestartNode(c *etcdraft.Config, rs *Storage, peersList []etcdraft.Peer, isJoining bool) (etcdraft.Node, error) {

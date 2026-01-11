@@ -21,4 +21,5 @@ type Consensus interface {
 	IsLeader() bool
 	LeaderID() uint64
 	NodeID() uint64
+	GetPeerAddr(id uint64) string
 }

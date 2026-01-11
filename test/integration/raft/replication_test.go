@@ -13,7 +13,7 @@ import (
 func TestBasicSetOperation(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -44,7 +44,7 @@ func TestBasicSetOperation(t *testing.T) {
 func TestBasicDeleteOperation(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -73,7 +73,7 @@ func TestBasicDeleteOperation(t *testing.T) {
 func TestConcurrentWrites(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	const numWrites = 100
 	var wg sync.WaitGroup
@@ -133,7 +133,7 @@ func TestConcurrentWrites(t *testing.T) {
 func TestWriteWhenNoLeader(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestWriteWhenNoLeader(t *testing.T) {
 func TestWriteDuringLeaderChange(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
