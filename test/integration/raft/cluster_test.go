@@ -12,7 +12,7 @@ import (
 func TestClusterBootstrap_ThreeNodes(t *testing.T) {
 	tc := helper.NewCluster(t, nil, "warn")
 
-	tc.StartNodes(3, 60)
+	tc.StartNodes(3, 60, false)
 
 	leaderID, err := tc.WaitForLeaderConvergence(10 * time.Second)
 	require.NoError(t, err, "failed to elect leader")
@@ -37,7 +37,7 @@ func TestClusterBootstrap_ThreeNodes(t *testing.T) {
 func TestSingleNodeCluster(t *testing.T) {
 	tc := helper.NewCluster(t, nil, "warn")
 
-	tc.StartNodes(1, 30)
+	tc.StartNodes(1, 30, false)
 
 	leaderID, err := tc.WaitForLeader(5 * time.Second)
 	require.NoError(t, err, "failed to elect leader")
@@ -53,7 +53,7 @@ func TestSingleNodeCluster(t *testing.T) {
 func TestLeaderElectionAfterLeaderFailure(t *testing.T) {
 	tc := helper.NewCluster(t, nil, "warn")
 
-	tc.StartNodes(3, 60)
+	tc.StartNodes(3, 60, false)
 
 	oldLeaderID, err := tc.WaitForLeader(10 * time.Second)
 	require.NoError(t, err, "failed to elect leader")
@@ -75,7 +75,7 @@ func TestLeaderElectionAfterLeaderFailure(t *testing.T) {
 func TestFiveNodeCluster(t *testing.T) {
 	tc := helper.NewCluster(t, nil, "warn")
 
-	tc.StartNodes(5, 60)
+	tc.StartNodes(5, 60, false)
 
 	leaderID, err := tc.WaitForLeader(15 * time.Second)
 	require.NoError(t, err, "failed to elect leader")

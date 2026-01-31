@@ -15,7 +15,7 @@ import (
 func TestEmptyProposal(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -46,7 +46,7 @@ func TestEmptyProposal(t *testing.T) {
 func TestLargeValue(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -86,7 +86,7 @@ func TestLargeValue(t *testing.T) {
 func TestRapidLeaderChurn(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(5, 60)
+	c.StartNodes(5, 60, false)
 
 	if _, err := c.WaitForLeader(15 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -140,7 +140,7 @@ func TestRapidLeaderChurn(t *testing.T) {
 func TestConcurrentProposalsAndReads(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -174,7 +174,7 @@ func TestConcurrentProposalsAndReads(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
-				idx, err := leader.RaftService.GetReadIndex(ctx)
+				idx, err := leader.Coordinator.ReadIndex(ctx)
 				if err != nil {
 					readErrors <- err
 					return
@@ -208,7 +208,7 @@ func TestConcurrentProposalsAndReads(t *testing.T) {
 func TestProposalAfterContextCancel(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -240,7 +240,7 @@ func TestProposalAfterContextCancel(t *testing.T) {
 func TestMultipleValuesForSameKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -283,7 +283,7 @@ func TestMultipleValuesForSameKey(t *testing.T) {
 func TestNodeIDZeroHandling(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)

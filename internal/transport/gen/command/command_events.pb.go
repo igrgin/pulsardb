@@ -493,6 +493,154 @@ func (x *BatchedCommands) GetCommands() []*CommandEventRequest {
 	return nil
 }
 
+type NotLeaderDetails struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LeaderId      uint64                 `protobuf:"varint,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	LeaderAddr    string                 `protobuf:"bytes,2,opt,name=leader_addr,json=leaderAddr,proto3" json:"leader_addr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotLeaderDetails) Reset() {
+	*x = NotLeaderDetails{}
+	mi := &file_command_events_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotLeaderDetails) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotLeaderDetails) ProtoMessage() {}
+
+func (x *NotLeaderDetails) ProtoReflect() protoreflect.Message {
+	mi := &file_command_events_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotLeaderDetails.ProtoReflect.Descriptor instead.
+func (*NotLeaderDetails) Descriptor() ([]byte, []int) {
+	return file_command_events_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *NotLeaderDetails) GetLeaderId() uint64 {
+	if x != nil {
+		return x.LeaderId
+	}
+	return 0
+}
+
+func (x *NotLeaderDetails) GetLeaderAddr() string {
+	if x != nil {
+		return x.LeaderAddr
+	}
+	return ""
+}
+
+type KeyNotFoundDetails struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KeyNotFoundDetails) Reset() {
+	*x = KeyNotFoundDetails{}
+	mi := &file_command_events_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeyNotFoundDetails) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeyNotFoundDetails) ProtoMessage() {}
+
+func (x *KeyNotFoundDetails) ProtoReflect() protoreflect.Message {
+	mi := &file_command_events_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeyNotFoundDetails.ProtoReflect.Descriptor instead.
+func (*KeyNotFoundDetails) Descriptor() ([]byte, []int) {
+	return file_command_events_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *KeyNotFoundDetails) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *KeyNotFoundDetails) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+type InvalidCommandDetails struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InvalidCommandDetails) Reset() {
+	*x = InvalidCommandDetails{}
+	mi := &file_command_events_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InvalidCommandDetails) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InvalidCommandDetails) ProtoMessage() {}
+
+func (x *InvalidCommandDetails) ProtoReflect() protoreflect.Message {
+	mi := &file_command_events_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InvalidCommandDetails.ProtoReflect.Descriptor instead.
+func (*InvalidCommandDetails) Descriptor() ([]byte, []int) {
+	return file_command_events_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *InvalidCommandDetails) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_command_events_proto protoreflect.FileDescriptor
 
 const file_command_events_proto_rawDesc = "" +
@@ -521,7 +669,16 @@ const file_command_events_proto_rawDesc = "" +
 	"\x04code\x18\x01 \x01(\x0e2\x11.events.ErrorCodeR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"J\n" +
 	"\x0fBatchedCommands\x127\n" +
-	"\bcommands\x18\x01 \x03(\v2\x1b.events.CommandEventRequestR\bcommands*0\n" +
+	"\bcommands\x18\x01 \x03(\v2\x1b.events.CommandEventRequestR\bcommands\"P\n" +
+	"\x10NotLeaderDetails\x12\x1b\n" +
+	"\tleader_id\x18\x01 \x01(\x04R\bleaderId\x12\x1f\n" +
+	"\vleader_addr\x18\x02 \x01(\tR\n" +
+	"leaderAddr\"D\n" +
+	"\x12KeyNotFoundDetails\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x1c\n" +
+	"\toperation\x18\x02 \x01(\tR\toperation\"/\n" +
+	"\x15InvalidCommandDetails\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason*0\n" +
 	"\x10CommandEventType\x12\a\n" +
 	"\x03SET\x10\x00\x12\a\n" +
 	"\x03GET\x10\x01\x12\n" +
@@ -552,15 +709,18 @@ func file_command_events_proto_rawDescGZIP() []byte {
 }
 
 var file_command_events_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_command_events_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_command_events_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_command_events_proto_goTypes = []any{
-	(CommandEventType)(0),        // 0: events.CommandEventType
-	(ErrorCode)(0),               // 1: events.ErrorCode
-	(*CommandEventValue)(nil),    // 2: events.CommandEventValue
-	(*CommandEventRequest)(nil),  // 3: events.CommandEventRequest
-	(*CommandEventResponse)(nil), // 4: events.CommandEventResponse
-	(*CommandError)(nil),         // 5: events.CommandError
-	(*BatchedCommands)(nil),      // 6: events.BatchedCommands
+	(CommandEventType)(0),         // 0: events.CommandEventType
+	(ErrorCode)(0),                // 1: events.ErrorCode
+	(*CommandEventValue)(nil),     // 2: events.CommandEventValue
+	(*CommandEventRequest)(nil),   // 3: events.CommandEventRequest
+	(*CommandEventResponse)(nil),  // 4: events.CommandEventResponse
+	(*CommandError)(nil),          // 5: events.CommandError
+	(*BatchedCommands)(nil),       // 6: events.BatchedCommands
+	(*NotLeaderDetails)(nil),      // 7: events.NotLeaderDetails
+	(*KeyNotFoundDetails)(nil),    // 8: events.KeyNotFoundDetails
+	(*InvalidCommandDetails)(nil), // 9: events.InvalidCommandDetails
 }
 var file_command_events_proto_depIdxs = []int32{
 	0, // 0: events.CommandEventRequest.type:type_name -> events.CommandEventType
@@ -596,7 +756,7 @@ func file_command_events_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_command_events_proto_rawDesc), len(file_command_events_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   5,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

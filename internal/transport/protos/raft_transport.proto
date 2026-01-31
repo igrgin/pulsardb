@@ -23,6 +23,7 @@ message GetReadIndexResponse {
 message JoinRequest {
   uint64 node_id = 1;
   string raft_addr = 2;
+  string client_addr = 3;
 }
 
 message JoinResponse {

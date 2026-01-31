@@ -40,9 +40,11 @@ var (
 	GRPCRequestsTotal   *prometheus.CounterVec
 	GRPCRequestDuration *prometheus.HistogramVec
 
-	WALWritesTotal   prometheus.Counter
-	WALWriteDuration prometheus.Histogram
-	WALSyncDuration  *prometheus.HistogramVec
+	WALWritesTotal      prometheus.Counter
+	WALWriteDuration    prometheus.Histogram
+	WALSyncDuration     *prometheus.HistogramVec
+	LeaseReadTotal      *prometheus.CounterVec
+	LeaderStepDownTotal prometheus.Counter
 )
 
 func Init(nodeID uint64) {
@@ -254,4 +256,19 @@ func Init(nodeID uint64) {
 		Help:      "WAL sync duration",
 		Buckets:   prometheus.ExponentialBuckets(0.00001, 2, 20),
 	}, []string{"operation"})
+
+	LeaseReadTotal = factory.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "raft_lease_reads_total",
+			Help: "Total lease-based reads",
+		},
+		[]string{"result"},
+	)
+
+	LeaderStepDownTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "raft_leader_stepdown_total",
+			Help: "Times leader stepped down due to CheckQuorum",
+		},
+	)
 }

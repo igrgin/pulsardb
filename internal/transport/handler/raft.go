@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"pulsardb/internal/metrics"
-	"pulsardb/internal/raft"
+	"pulsardb/internal/raft/coordinator"
 
 	rafttransportpb "pulsardb/internal/transport/gen/raft"
 
@@ -16,8 +16,8 @@ import (
 
 type RaftHandler interface {
 	Step(ctx context.Context, msg raftpb.Message) error
-	GetReadIndex(ctx context.Context) (uint64, error)
-	HandleJoinRequest(ctx context.Context, id uint64, addr string) error
+	ReadIndex(ctx context.Context) (uint64, error)
+	HandleJoinRequest(ctx context.Context, id uint64, raftAddr, clientAddr string) error
 }
 
 type RaftTransportHandler struct {
@@ -53,7 +53,7 @@ func (h *RaftTransportHandler) GetReadIndex(
 ) (*rafttransportpb.GetReadIndexResponse, error) {
 	slog.Debug("read index request", "from", req.GetFromNode())
 
-	idx, err := h.handler.GetReadIndex(ctx)
+	idx, err := h.handler.ReadIndex(ctx)
 	if err != nil {
 		return nil, raftError(err)
 	}
@@ -67,15 +67,15 @@ func (h *RaftTransportHandler) RequestJoinCluster(
 ) (*rafttransportpb.JoinResponse, error) {
 	slog.Debug("join request", "node_id", req.NodeId, "addr", req.RaftAddr)
 
-	err := h.handler.HandleJoinRequest(ctx, req.NodeId, req.RaftAddr)
+	err := h.handler.HandleJoinRequest(ctx, req.NodeId, req.RaftAddr, req.ClientAddr)
 	if err != nil {
-		if errors.Is(err, raft.ErrNotLeader) {
+		if errors.Is(err, coordinator.ErrNotLeader) {
 			return &rafttransportpb.JoinResponse{
 				Accepted: false,
 				Message:  "not leader",
 			}, nil
 		}
-		if errors.Is(err, raft.ErrShuttingDown) {
+		if errors.Is(err, coordinator.ErrShuttingDown) {
 			return &rafttransportpb.JoinResponse{
 				Accepted: false,
 				Message:  "server is shutting down",
@@ -93,9 +93,9 @@ func raftError(err error) error {
 		return status.Error(codes.DeadlineExceeded, "request timed out")
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, "request canceled")
-	case errors.Is(err, raft.ErrShuttingDown):
+	case errors.Is(err, coordinator.ErrShuttingDown):
 		return status.Error(codes.Unavailable, "server is shutting down")
-	case errors.Is(err, raft.ErrNotLeader):
+	case errors.Is(err, coordinator.ErrNotLeader):
 		return status.Error(codes.FailedPrecondition, "not leader")
 	default:
 		return status.Errorf(codes.Internal, "raft: %v", err)

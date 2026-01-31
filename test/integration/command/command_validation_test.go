@@ -12,7 +12,7 @@ import (
 
 func TestCmdService_ValidationErrors(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -91,7 +91,7 @@ func TestCmdService_ValidationErrors(t *testing.T) {
 
 func TestCmdService_ContextTimeout(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
@@ -103,7 +103,7 @@ func TestCmdService_ContextTimeout(t *testing.T) {
 
 func TestCmdService_ContextCancellation(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -114,7 +114,7 @@ func TestCmdService_ContextCancellation(t *testing.T) {
 
 func TestCmdService_UnknownCommandType(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

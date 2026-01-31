@@ -13,7 +13,7 @@ import (
 func TestRecoveryFromWALOnly(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -36,7 +36,7 @@ func TestRecoveryFromWALOnly(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	appliedBefore := leader.RaftService.LastApplied()
+	appliedBefore := leader.Coordinator.LastApplied()
 
 	if err := c.StopNode(leaderID); err != nil {
 		t.Fatalf("stop failed: %v", err)
@@ -55,7 +55,7 @@ func TestRecoveryFromWALOnly(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	node := c.GetNode(leaderID)
-	appliedAfter := node.RaftService.LastApplied()
+	appliedAfter := node.Coordinator.LastApplied()
 
 	t.Logf("Applied before: %d, after: %d", appliedBefore, appliedAfter)
 
@@ -67,7 +67,7 @@ func TestRecoveryFromWALOnly(t *testing.T) {
 func TestRecoveryFromSnapshotPlusWAL(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestRecoveryFromSnapshotPlusWAL(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.TriggerSnapshot(10); err != nil {
+	if err := leader.Coordinator.TriggerSnapshot(); err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
 
@@ -103,7 +103,7 @@ func TestRecoveryFromSnapshotPlusWAL(t *testing.T) {
 		t.Fatalf("convergence failed: %v", err)
 	}
 
-	finalApplied := leader.RaftService.LastApplied()
+	finalApplied := leader.Coordinator.LastApplied()
 
 	if err := c.StopNode(leaderID); err != nil {
 		t.Fatalf("stop failed: %v", err)
@@ -122,7 +122,7 @@ func TestRecoveryFromSnapshotPlusWAL(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	node := c.GetNode(leaderID)
-	recoveredApplied := node.RaftService.LastApplied()
+	recoveredApplied := node.Coordinator.LastApplied()
 
 	t.Logf("Final applied: %d, Recovered: %d", finalApplied, recoveredApplied)
 
@@ -134,7 +134,7 @@ func TestRecoveryFromSnapshotPlusWAL(t *testing.T) {
 func TestHardStatePersistence(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestHardStatePersistence(t *testing.T) {
 func TestConfStatePersistence(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -217,7 +217,7 @@ func TestConfStatePersistence(t *testing.T) {
 func TestFullClusterShutdownAndRestart(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	if _, err := c.WaitForLeader(10 * time.Second); err != nil {
 		t.Fatalf("failed to elect leader: %v", err)
@@ -291,7 +291,7 @@ func TestFullClusterShutdownAndRestart(t *testing.T) {
 func TestRecoveryFromWALDeletion(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 15)
+	c.StartNodes(3, 15, false)
 
 	leaderID, err := c.WaitForLeader(15 * time.Second)
 	if err != nil {
@@ -331,7 +331,7 @@ func TestRecoveryFromWALDeletion(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.ProposeRemoveNode(ctx, victimID); err != nil {
+	if err := leader.Coordinator.ProposeRemoveNode(ctx, victimID); err != nil {
 		t.Fatalf("ProposeRemoveNode failed: %v", err)
 	}
 
@@ -377,13 +377,13 @@ func TestRecoveryFromWALDeletion(t *testing.T) {
 		}
 	}
 
-	t.Logf("Victim recovered to applied index: %d", victim.RaftService.LastApplied())
+	t.Logf("Victim recovered to applied index: %d", victim.Coordinator.LastApplied())
 }
 
 func TestRecoveryFromWALDeletionWithSnapshot(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	_, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -402,7 +402,7 @@ func TestRecoveryFromWALDeletionWithSnapshot(t *testing.T) {
 	leader := c.GetLeader()
 	require.NotNil(t, leader)
 
-	if err := leader.RaftService.TriggerSnapshot(10); err != nil {
+	if err := leader.Coordinator.TriggerSnapshot(); err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
 
@@ -466,13 +466,13 @@ func TestRecoveryFromWALDeletionWithSnapshot(t *testing.T) {
 		}
 	}
 
-	t.Logf("Victim recovered with snapshot, applied: %d", victim.RaftService.LastApplied())
+	t.Logf("Victim recovered with snapshot, applied: %d", victim.Coordinator.LastApplied())
 }
 
 func TestLeaderRecoveryFromWALDeletion(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -545,13 +545,13 @@ func TestLeaderRecoveryFromWALDeletion(t *testing.T) {
 		}
 	}
 
-	t.Logf("Old leader recovered, applied: %d", recovered.RaftService.LastApplied())
+	t.Logf("Old leader recovered, applied: %d", recovered.Coordinator.LastApplied())
 }
 
 func TestMultipleNodesRecoverFromDataLoss(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(5, 60)
+	c.StartNodes(5, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -626,6 +626,6 @@ func TestMultipleNodesRecoverFromDataLoss(t *testing.T) {
 				t.Errorf("node %d: key %s expected %q, got %q", victimID, key, expected, strVal)
 			}
 		}
-		t.Logf("Node %d recovered, applied: %d", victimID, node.RaftService.LastApplied())
+		t.Logf("Node %d recovered, applied: %d", victimID, node.Coordinator.LastApplied())
 	}
 }

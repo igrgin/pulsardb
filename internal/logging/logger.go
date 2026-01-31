@@ -61,12 +61,12 @@ func (h *prettyHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	var buf bytes.Buffer
 	ts := time.Now().Format("2006-01-02 15:04:05.000")
-	fmt.Fprintf(&buf, "%s ", ts)
+	_, _ = fmt.Fprintf(&buf, "%s ", ts)
 
 	level := levelToUpper(r.Level)
 	color := colorForLevel(r.Level)
 	reset := "\033[0m"
-	fmt.Fprintf(&buf, "%s%-5s%s ", color, level, reset)
+	_, _ = fmt.Fprintf(&buf, "%s%-5s%s ", color, level, reset)
 
 	if h.source {
 		if file, line, topPkg := resolveCaller(); file != "" {
@@ -75,14 +75,15 @@ func (h *prettyHandler) Handle(ctx context.Context, r slog.Record) error {
 			if pkgName == "." || pkgName == "" {
 				pkgName = topPkg
 			}
-			fmt.Fprintf(&buf, "%-9s %-25s ", pkgName, loc)
+			// Increase widths so package and location have more space between them
+			_, _ = fmt.Fprintf(&buf, "%-16s %-22s ", pkgName, loc)
 		}
 	}
 
 	buf.WriteString(r.Message)
 
 	r.Attrs(func(a slog.Attr) bool {
-		fmt.Fprintf(&buf, " %s=%v", a.Key, a.Value.Any())
+		_, _ = fmt.Fprintf(&buf, " %s=%v", a.Key, a.Value.Any())
 		return true
 	})
 

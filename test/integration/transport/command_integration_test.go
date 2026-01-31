@@ -17,7 +17,7 @@ import (
 
 func TestCommand_SET_MissingKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -31,7 +31,7 @@ func TestCommand_SET_MissingKey(t *testing.T) {
 
 func TestCommand_SET_MissingValue(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -44,7 +44,7 @@ func TestCommand_SET_MissingValue(t *testing.T) {
 
 func TestCommand_GET_MissingKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -56,7 +56,7 @@ func TestCommand_GET_MissingKey(t *testing.T) {
 
 func TestCommand_GET_WithValue(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -69,7 +69,7 @@ func TestCommand_GET_WithValue(t *testing.T) {
 
 func TestCommand_DELETE_WithValue(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -80,7 +80,7 @@ func TestCommand_DELETE_WithValue(t *testing.T) {
 
 func TestCommand_UnknownType(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -97,7 +97,7 @@ func TestCommand_UnknownType(t *testing.T) {
 
 func TestCommand_SetThenGet_RoundTrip(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -114,7 +114,7 @@ func TestCommand_SetThenGet_RoundTrip(t *testing.T) {
 
 func TestCommand_DeleteThenGet_ReturnsError(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -133,7 +133,7 @@ func TestCommand_DeleteThenGet_ReturnsError(t *testing.T) {
 
 func TestCommand_GET_NonExistentKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -146,7 +146,7 @@ func TestCommand_GET_NonExistentKey(t *testing.T) {
 
 func TestCommand_OverwriteExistingKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -165,7 +165,7 @@ func TestCommand_OverwriteExistingKey(t *testing.T) {
 
 func TestCommand_ContextCanceled(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -176,7 +176,7 @@ func TestCommand_ContextCanceled(t *testing.T) {
 
 func TestCommand_ContextDeadlineExceeded(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 	defer cancel()
@@ -188,7 +188,7 @@ func TestCommand_ContextDeadlineExceeded(t *testing.T) {
 
 func TestCommand_MultipleValueTypes(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	_, err := c.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestCommand_MultipleValueTypes(t *testing.T) {
 
 func TestTransport_SET_Success(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -290,7 +290,7 @@ func TestTransport_SET_Success(t *testing.T) {
 
 func TestTransport_SET_MissingKey_ReturnsInvalidArgument(t *testing.T) {
 	c := helper.NewCluster(t, nil, "debug")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -313,7 +313,7 @@ func TestTransport_SET_MissingKey_ReturnsInvalidArgument(t *testing.T) {
 
 func TestTransport_SET_MissingValue_ReturnsInvalidArgument(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -334,7 +334,7 @@ func TestTransport_SET_MissingValue_ReturnsInvalidArgument(t *testing.T) {
 
 func TestTransport_GET_ExistingKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -364,7 +364,7 @@ func TestTransport_GET_ExistingKey(t *testing.T) {
 
 func TestTransport_GET_NonExistentKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -384,7 +384,7 @@ func TestTransport_GET_NonExistentKey(t *testing.T) {
 
 func TestTransport_GET_WithValue_ReturnsInvalidArgument(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -407,7 +407,7 @@ func TestTransport_GET_WithValue_ReturnsInvalidArgument(t *testing.T) {
 
 func TestTransport_DELETE_ExistingKey(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -442,7 +442,7 @@ func TestTransport_DELETE_ExistingKey(t *testing.T) {
 
 func TestTransport_ResponseMetadata(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -466,7 +466,7 @@ func TestTransport_ResponseMetadata(t *testing.T) {
 
 func TestTransport_LargeValue(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -500,7 +500,7 @@ func TestTransport_LargeValue(t *testing.T) {
 
 func TestTransport_ConcurrentClients(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()
@@ -571,7 +571,7 @@ func TestTransport_ConcurrentClients(t *testing.T) {
 
 func TestCluster_LeaderElection(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -580,7 +580,7 @@ func TestCluster_LeaderElection(t *testing.T) {
 
 func TestCluster_DataConsistency(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	_, err := c.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -601,7 +601,7 @@ func TestCluster_DataConsistency(t *testing.T) {
 
 func TestCluster_LeaderFailover(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -630,7 +630,7 @@ func TestCluster_LeaderFailover(t *testing.T) {
 
 func TestCluster_NodeRestart(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	_, err := c.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -666,7 +666,7 @@ func TestCluster_NodeRestart(t *testing.T) {
 
 func TestCommand_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	_, err := c.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -676,7 +676,7 @@ func TestCommand_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		leader.ClientServer.GracefulStop()
+		leader.Transport.Stop()
 		close(done)
 	}()
 
@@ -689,7 +689,7 @@ func TestCommand_GracefulShutdown_CompletesWithinTimeout(t *testing.T) {
 
 func TestCommand_RequestAfterShutdown_Fails(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	leader := c.GetLeader()
@@ -712,7 +712,7 @@ func TestCommand_RequestAfterShutdown_Fails(t *testing.T) {
 
 func TestCommand_ErrorResponse_DoesNotLeakInternalDetails(t *testing.T) {
 	c := helper.NewCluster(t, nil, "error")
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	client, cleanup := c.GetClient(t)
 	defer cleanup()

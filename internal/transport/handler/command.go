@@ -4,10 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"pulsardb/internal/raft"
+	internalerrors "pulsardb/internal/command"
+	"pulsardb/internal/raft/coordinator"
 	commandeventspb "pulsardb/internal/transport/gen/command"
-
-	"pulsardb/internal/command"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,6 +14,7 @@ import (
 
 type CommandProcessor interface {
 	ProcessCommand(ctx context.Context, req *commandeventspb.CommandEventRequest) (*commandeventspb.CommandEventResponse, error)
+	GetLeaderInfo() (uint64, string)
 }
 
 type CommandHandler struct {
@@ -39,27 +39,61 @@ func (h *CommandHandler) ProcessCommandEvent(
 			"event_id", req.GetEventId(),
 			"key", req.GetKey(),
 		)
-		return nil, ToGRPCError(err)
+		return nil, h.toGRPCError(err, req)
 	}
 
 	return resp, nil
 }
 
-func ToGRPCError(err error) error {
+func (h *CommandHandler) toGRPCError(err error, req *commandeventspb.CommandEventRequest) error {
+	if errors.Is(err, coordinator.ErrNotLeader) {
+		leaderID, leaderAddr := h.processor.GetLeaderInfo()
+
+		st := status.New(codes.FailedPrecondition, "operation must be performed on the leader")
+		ds, detailErr := st.WithDetails(&commandeventspb.NotLeaderDetails{
+			LeaderId:   leaderID,
+			LeaderAddr: leaderAddr,
+		})
+
+		if detailErr != nil {
+			return st.Err()
+		}
+		return ds.Err()
+	}
+
+	if errors.Is(err, internalerrors.ErrKeyNotFound) {
+		st := status.New(codes.NotFound, "key not found")
+		ds, detailErr := st.WithDetails(&commandeventspb.KeyNotFoundDetails{
+			Key:       req.GetKey(),
+			Operation: req.GetType().String(),
+		})
+
+		if detailErr != nil {
+			return st.Err()
+		}
+		return ds.Err()
+	}
+
+	if errors.Is(err, internalerrors.ErrInvalidCommand) {
+		st := status.New(codes.InvalidArgument, "invalid command")
+		ds, detailErr := st.WithDetails(&commandeventspb.InvalidCommandDetails{
+			Reason: err.Error(),
+		})
+
+		if detailErr != nil {
+			return st.Err()
+		}
+		return ds.Err()
+	}
+
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return status.Error(codes.DeadlineExceeded, "request timed out")
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, "request canceled")
-	case errors.Is(err, command.ErrInvalidCommand):
-		return status.Errorf(codes.InvalidArgument, "invalid command: %v", err)
-	case errors.Is(err, command.ErrKeyNotFound):
-		return status.Errorf(codes.NotFound, "%v", err)
-	case errors.Is(err, command.ErrNotLeader), errors.Is(err, command.ErrNoLeader):
-		return status.Error(codes.Unavailable, "not leader")
-	case errors.Is(err, raft.ErrShuttingDown):
+	case errors.Is(err, coordinator.ErrShuttingDown):
 		return status.Error(codes.Unavailable, "server is shutting down")
 	default:
-		return status.Error(codes.Internal, "internal error")
+		return status.Errorf(codes.Internal, "internal error: %v", err)
 	}
 }

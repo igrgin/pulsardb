@@ -13,7 +13,7 @@ import (
 func TestManualSnapshotTrigger(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -29,9 +29,9 @@ func TestManualSnapshotTrigger(t *testing.T) {
 	}
 
 	leader := c.GetLeader()
-	beforeSnap := leader.RaftService.LastApplied()
+	beforeSnap := leader.Coordinator.LastApplied()
 
-	if err := leader.RaftService.TriggerSnapshot(10); err != nil {
+	if err := leader.Coordinator.TriggerSnapshot(); err != nil {
 		t.Fatalf("TriggerSnapshot failed: %v", err)
 	}
 
@@ -46,7 +46,7 @@ func TestManualSnapshotTrigger(t *testing.T) {
 func TestSnapshotRestorationOnRestart(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestSnapshotRestorationOnRestart(t *testing.T) {
 	}
 
 	leader := c.GetLeader()
-	if err := leader.RaftService.TriggerSnapshot(10); err != nil {
+	if err := leader.Coordinator.TriggerSnapshot(); err != nil {
 		t.Fatalf("TriggerSnapshot failed: %v", err)
 	}
 
@@ -110,7 +110,7 @@ func TestSnapshotRestorationOnRestart(t *testing.T) {
 func TestFollowerCatchUpViaSnapshot(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	followers := c.GetFollowers()
 	if len(followers) == 0 {
@@ -132,7 +132,7 @@ func TestFollowerCatchUpViaSnapshot(t *testing.T) {
 	}
 
 	leader := c.GetLeader()
-	if err := leader.RaftService.TriggerSnapshot(50); err != nil {
+	if err := leader.Coordinator.TriggerSnapshot(); err != nil {
 		t.Fatalf("TriggerSnapshot failed: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestFollowerCatchUpViaSnapshot(t *testing.T) {
 func TestOldSnapshotCleanup(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(1, 30)
+	c.StartNodes(1, 30, false)
 
 	leader := c.GetLeader()
 
@@ -185,11 +185,11 @@ func TestOldSnapshotCleanup(t *testing.T) {
 			}
 		}
 
-		if err := leader.RaftService.TriggerSnapshot(10); err != nil {
+		if err := leader.Coordinator.TriggerSnapshot(); err != nil {
 			t.Fatalf("TriggerSnapshot %d failed: %v", round, err)
 		}
 
-		applied := leader.RaftService.LastApplied()
+		applied := leader.Coordinator.LastApplied()
 		if applied > 15 {
 			leader.RaftNode.Storage().Compact(applied - 10)
 		}

@@ -3,18 +3,19 @@ package integration
 import (
 	"context"
 	"fmt"
-	"pulsardb/internal/command"
 	"pulsardb/test/integration/helper"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestCmdService_SetAndGet(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -33,7 +34,7 @@ func TestCmdService_SetAndGet(t *testing.T) {
 func TestCmdService_GetNonExistent(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -50,7 +51,7 @@ func TestCmdService_GetNonExistent(t *testing.T) {
 func TestCmdService_Delete(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -68,14 +69,19 @@ func TestCmdService_Delete(t *testing.T) {
 	require.NoError(t, cluster.Delete(ctx, "to-delete"))
 
 	_, exists, err = cluster.Get(ctx, "to-delete")
-	require.ErrorIs(t, err, command.ErrKeyNotFound)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error, got: %v", err)
+	require.Equal(t, codes.NotFound, st.Code())
+	require.Contains(t, st.Message(), "key not found")
 	require.False(t, exists)
 }
 
 func TestCmdService_Overwrite(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -96,7 +102,7 @@ func TestCmdService_Overwrite(t *testing.T) {
 func TestCmdService_DeleteNonExistent(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -111,7 +117,7 @@ func TestCmdService_DeleteNonExistent(t *testing.T) {
 func TestCmdService_SequentialOperations(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -135,7 +141,7 @@ func TestCmdService_SequentialOperations(t *testing.T) {
 func TestCmdService_RapidSetDelete(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "warn")
 
-	cluster.StartNodes(3, 60)
+	cluster.StartNodes(3, 60, false)
 
 	_, err := cluster.WaitForLeader(10 * time.Second)
 	require.NoError(t, err)
@@ -154,6 +160,11 @@ func TestCmdService_RapidSetDelete(t *testing.T) {
 
 	_, exists, err := cluster.Get(ctx, key)
 	require.Error(t, err)
-	require.ErrorIs(t, err, command.ErrKeyNotFound)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error, got: %v", err)
+	require.Equal(t, codes.NotFound, st.Code())
+	require.Contains(t, st.Message(), "key not found")
 	require.False(t, exists)
 }

@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"pulsardb/internal/command"
 	commandeventspb "pulsardb/internal/transport/gen/command"
 	"pulsardb/test/integration/helper"
 	"strings"
@@ -10,11 +9,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestCmdService_SpecialKeys(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -46,7 +47,7 @@ func TestCmdService_SpecialKeys(t *testing.T) {
 
 func TestCmdService_CrossNodeConsistency(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -59,9 +60,9 @@ func TestCmdService_CrossNodeConsistency(t *testing.T) {
 	require.True(t, consistent)
 }
 
-func TestCmdService_ReadFromFollower(t *testing.T) {
+func TestCmdService_ReadFromFollower_IsLeasedBasedTrue(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, true)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -80,7 +81,77 @@ func TestCmdService_ReadFromFollower(t *testing.T) {
 		Key:     "follower-read",
 	}
 
-	resp, err := follower.CmdService.ProcessCommand(ctx, req)
+	_, err := cluster.SendToNode(ctx, follower.ID, req)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "operation must be performed on the leader")
+}
+
+func TestCmdService_ReadFromFollower_IsLeasedBasedFalse(t *testing.T) {
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10, false)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	require.NoError(t, cluster.Set(ctx, "follower-read", "test-value"))
+	require.NoError(t, cluster.WaitForConvergence(5*time.Second))
+
+	followers := cluster.GetFollowers()
+	require.NotEmpty(t, followers)
+
+	follower := followers[0]
+
+	req := &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "follower-read",
+	}
+
+	resp, err := cluster.SendToNode(ctx, follower.ID, req)
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+	require.Equal(t, "test-value", resp.GetValue().GetStringValue())
+}
+
+func TestCmdService_ReadFromLeader_IsLeasedBasedTrue(t *testing.T) {
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10, true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	require.NoError(t, cluster.Set(ctx, "follower-read", "test-value"))
+	require.NoError(t, cluster.WaitForConvergence(5*time.Second))
+
+	req := &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "follower-read",
+	}
+
+	resp, err := cluster.SendToLeader(ctx, req)
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+	require.Equal(t, "test-value", resp.GetValue().GetStringValue())
+}
+
+func TestCmdService_ReadFromLeader_IsLeasedBasedFalse(t *testing.T) {
+	cluster := helper.NewCluster(t, nil, "error")
+	cluster.StartNodes(3, 10, false)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	require.NoError(t, cluster.Set(ctx, "follower-read", "test-value"))
+	require.NoError(t, cluster.WaitForConvergence(5*time.Second))
+
+	req := &commandeventspb.CommandEventRequest{
+		EventId: helper.NewEventID(),
+		Type:    commandeventspb.CommandEventType_GET,
+		Key:     "follower-read",
+	}
+
+	resp, err := cluster.SendToLeader(ctx, req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 	require.Equal(t, "test-value", resp.GetValue().GetStringValue())
@@ -88,7 +159,7 @@ func TestCmdService_ReadFromFollower(t *testing.T) {
 
 func TestCmdService_LongKey(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -105,7 +176,7 @@ func TestCmdService_LongKey(t *testing.T) {
 
 func TestCmdService_ZeroEventID(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -126,7 +197,7 @@ func TestCmdService_ZeroEventID(t *testing.T) {
 
 func TestCmdService_SameKeyMultipleNodes(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -148,7 +219,7 @@ func TestCmdService_SameKeyMultipleNodes(t *testing.T) {
 
 func TestCmdService_DeleteThenRecreate(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -165,7 +236,13 @@ func TestCmdService_DeleteThenRecreate(t *testing.T) {
 	require.NoError(t, err)
 	_, exists, err = cluster.Get(ctx, key)
 	require.Error(t, err)
-	require.ErrorIs(t, err, command.ErrKeyNotFound)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error, got: %v", err)
+	require.Equal(t, codes.NotFound, st.Code())
+	require.Contains(t, st.Message(), "key not found")
+
 	require.False(t, exists)
 
 	require.NoError(t, cluster.Set(ctx, key, "second"))
@@ -177,7 +254,7 @@ func TestCmdService_DeleteThenRecreate(t *testing.T) {
 
 func TestCmdService_SpecialStringValues(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

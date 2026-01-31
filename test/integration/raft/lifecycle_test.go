@@ -11,7 +11,7 @@ import (
 func TestLeaderGracefulShutdown(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestLeaderGracefulShutdown(t *testing.T) {
 func TestFollowerGracefulShutdown(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -105,7 +105,7 @@ func TestFollowerGracefulShutdown(t *testing.T) {
 func TestSequentialNodeShutdowns(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(5, 60)
+	c.StartNodes(5, 60, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -140,7 +140,7 @@ func TestSequentialNodeShutdowns(t *testing.T) {
 func TestRapidRestarts(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -184,7 +184,7 @@ func TestRapidRestarts(t *testing.T) {
 func TestLeaderFailoverDuringWrites(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	leaderID, err := c.WaitForLeader(10 * time.Second)
 	if err != nil {
@@ -226,7 +226,7 @@ func TestLeaderFailoverDuringWrites(t *testing.T) {
 func TestAllNodesRestart(t *testing.T) {
 	c := helper.NewCluster(t, nil, "info")
 
-	c.StartNodes(3, 60)
+	c.StartNodes(3, 60, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

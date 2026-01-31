@@ -12,7 +12,7 @@ import (
 
 func TestCmdService_MultipleDataTypes(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -132,7 +132,7 @@ func TestCmdService_MultipleDataTypes(t *testing.T) {
 
 func TestCmdService_LargeValue(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -164,7 +164,7 @@ func TestCmdService_LargeValue(t *testing.T) {
 
 func TestCmdService_TypeOverwrite(t *testing.T) {
 	cluster := helper.NewCluster(t, nil, "error")
-	cluster.StartNodes(3, 10)
+	cluster.StartNodes(3, 10, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
