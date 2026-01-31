@@ -169,7 +169,7 @@ func (c *Coordinator) maybePromoteLearners() {
 			raftAddr, clientAddr := c.transport.GetPeerAddrs(learnerID)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err := c.promoteToVoter(ctx, learnerID, raftAddr, clientAddr)
+			err := c.PromoteToVoter(ctx, learnerID, raftAddr, clientAddr)
 			cancel()
 
 			if err != nil {
@@ -202,7 +202,11 @@ func (c *Coordinator) isLearnerReady(progress tracker.Progress, commitIndex uint
 	return progress.Match >= (commitIndex - c.promotionThreshold)
 }
 
-func (c *Coordinator) promoteToVoter(ctx context.Context, nodeID uint64, raftAddr, clientAddr string) error {
+func (c *Coordinator) PromoteToVoter(ctx context.Context, nodeID uint64, raftAddr, clientAddr string) error {
+	if !c.IsLeader() {
+		return ErrNotLeader
+	}
+
 	cc := ops.BuildPromoteChange(nodeID, raftAddr, clientAddr)
 	return c.node.ProposeConfChange(ctx, cc)
 }

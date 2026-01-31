@@ -398,16 +398,6 @@ func (c *Coordinator) HandleJoinRequest(ctx context.Context, nodeID uint64, raft
 	return c.ProposeAddLearnerNode(ctx, nodeID, raftAddr, clientAddr)
 }
 
-func (c *Coordinator) ProposeAddNode(ctx context.Context, nodeID uint64, raftAddr, clientAddr string) error {
-	if !c.IsLeader() {
-		return ErrNotLeader
-	}
-
-	slog.Info("proposing add node", "node_id", c.node.ID(), "target", nodeID, "raftAddr", raftAddr)
-	cc := ops.BuildAddNodeChange(nodeID, raftAddr, clientAddr)
-	return c.node.ProposeConfChange(ctx, cc)
-}
-
 func (c *Coordinator) ProposeAddLearnerNode(ctx context.Context, nodeID uint64, raftAddr, clientAddr string) error {
 	if !c.IsLeader() {
 		return ErrNotLeader

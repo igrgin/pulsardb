@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -31,7 +32,7 @@ func NewServer(addr string) *Server {
 
 func (s *Server) Start() error {
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != http.ErrServerClosed {
+		if err := s.httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("metrics server error", "error", err)
 		}
 	}()

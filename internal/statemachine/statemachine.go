@@ -64,14 +64,6 @@ func (sm *StateMachine) execute(cmd *commandeventspb.CommandEventRequest) *comma
 		sm.storage.Delete(cmd.Key)
 		return successResponse(cmd.EventId)
 
-	case commandeventspb.CommandEventType_GET:
-		val, ok := sm.storage.Get(cmd.Key)
-		if !ok {
-			return errorResponse(cmd.EventId, commandeventspb.ErrorCode_KEY_NOT_FOUND,
-				fmt.Sprintf("key %q not found", cmd.Key))
-		}
-		return readResponse(cmd.EventId, convert.ToCommandProto(val))
-
 	default:
 		return errorResponse(cmd.EventId, commandeventspb.ErrorCode_INVALID_REQUEST,
 			fmt.Sprintf("unknown type: %s", cmd.Type))
