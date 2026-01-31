@@ -13,10 +13,10 @@ import (
 
 func TestCoordinator_doReadIndex_NoLeader(t *testing.T) {
 
-	n := &fakeNode{
+	n := &mockNode{
 		id:     1,
 		status: etcdraft.Status{BasicStatus: etcdraft.BasicStatus{SoftState: etcdraft.SoftState{Lead: 0, RaftState: etcdraft.StateLeader}}},
-		wal:    &fakeWAL{},
+		wal:    &mockWAL{},
 	}
 	c := &Coordinator{
 		node:        n,
@@ -32,10 +32,10 @@ func TestCoordinator_doReadIndex_NoLeader(t *testing.T) {
 
 func TestCoordinator_doReadIndex_LeaseBasedRead_NotLeader(t *testing.T) {
 
-	n := &fakeNode{
+	n := &mockNode{
 		id:     1,
 		status: etcdraft.Status{BasicStatus: etcdraft.BasicStatus{SoftState: etcdraft.SoftState{Lead: 2, RaftState: etcdraft.StateFollower}}},
-		wal:    &fakeWAL{},
+		wal:    &mockWAL{},
 	}
 	c := &Coordinator{
 		node:           n,
@@ -53,10 +53,10 @@ func TestCoordinator_doReadIndex_LeaseBasedRead_NotLeader(t *testing.T) {
 func TestCoordinator_doReadIndex_ReadIndexCallError(t *testing.T) {
 	sentinel := errors.New("ri")
 
-	n := &fakeNode{
+	n := &mockNode{
 		id:     1,
 		status: etcdraft.Status{BasicStatus: etcdraft.BasicStatus{SoftState: etcdraft.SoftState{Lead: 2, RaftState: etcdraft.StateLeader}}},
-		wal:    &fakeWAL{},
+		wal:    &mockWAL{},
 		ReadIndexFn: func(ctx context.Context, rctx []byte) error {
 			return sentinel
 		},
@@ -76,10 +76,10 @@ func TestCoordinator_doReadIndex_ReadIndexCallError(t *testing.T) {
 }
 
 func TestCoordinator_doReadIndex_SuccessViaHandleReadStates(t *testing.T) {
-	n := &fakeNode{
+	n := &mockNode{
 		id:          1,
 		status:      etcdraft.Status{BasicStatus: etcdraft.BasicStatus{SoftState: etcdraft.SoftState{Lead: 2, RaftState: etcdraft.StateLeader}}},
-		wal:         &fakeWAL{},
+		wal:         &mockWAL{},
 		ReadIndexFn: func(ctx context.Context, rctx []byte) error { return nil },
 	}
 

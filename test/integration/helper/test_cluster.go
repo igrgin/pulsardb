@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
@@ -948,7 +949,7 @@ func (c *Cluster) getGRPCClientForNode(
 	}
 	addr := n.ClientAddr
 
-	conn, err := grpc.DialContext(
+	conn, err := newClientDialContextEquivalent(
 		ctx,
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -973,4 +974,28 @@ func (c *Cluster) getGRPCClientForNode(
 	c.conns[nodeID] = conn
 	c.clients[nodeID] = client
 	return client, nil
+}
+
+func newClientDialContextEquivalent(
+	ctx context.Context,
+	addr string,
+	opts ...grpc.DialOption,
+) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(addr, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	conn.Connect()
+
+	for {
+		s := conn.GetState()
+		if s == connectivity.Ready {
+			return conn, nil
+		}
+		if !conn.WaitForStateChange(ctx, s) {
+			_ = conn.Close()
+			return nil, ctx.Err()
+		}
+	}
 }

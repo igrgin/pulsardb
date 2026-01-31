@@ -9,9 +9,9 @@ import (
 )
 
 func TestCoordinator_processReady_SaveReadyErrorBubblesUp(t *testing.T) {
-	w := &fakeWAL{SaveReadyErr: errors.New("wal")}
-	n := &fakeNode{id: 1, wal: w}
-	tr := &fakeTransport{}
+	w := &mockWAL{SaveReadyErr: errors.New("wal")}
+	n := &mockNode{id: 1, wal: w}
+	tr := &mockTransport{}
 
 	c := &Coordinator{
 		node:        n,
@@ -35,9 +35,9 @@ func TestCoordinator_processReady_SaveReadyErrorBubblesUp(t *testing.T) {
 
 func TestCoordinator_processReady_SendsMessagesAndAdvances(t *testing.T) {
 
-	w := &fakeWAL{}
-	n := &fakeNode{id: 1, wal: w}
-	tr := &fakeTransport{}
+	w := &mockWAL{}
+	n := &mockNode{id: 1, wal: w}
+	tr := &mockTransport{}
 
 	c := &Coordinator{
 		node:        n,

@@ -7,18 +7,18 @@ import (
 	etcdraft "go.etcd.io/raft/v3"
 )
 
-type fakeStoreForSnapshot struct {
+type mockStoreForSnapshot struct {
 	snapData []byte
 	snapErr  error
 	lenVal   int
 }
 
-func (s *fakeStoreForSnapshot) Set(key string, value any)  {}
-func (s *fakeStoreForSnapshot) Get(key string) (any, bool) { return nil, false }
-func (s *fakeStoreForSnapshot) Delete(key string)          {}
-func (s *fakeStoreForSnapshot) Snapshot() ([]byte, error)  { return s.snapData, s.snapErr }
-func (s *fakeStoreForSnapshot) Restore([]byte) error       { return nil }
-func (s *fakeStoreForSnapshot) Len() int                   { return s.lenVal }
+func (s *mockStoreForSnapshot) Set(key string, value any)  {}
+func (s *mockStoreForSnapshot) Get(key string) (any, bool) { return nil, false }
+func (s *mockStoreForSnapshot) Delete(key string)          {}
+func (s *mockStoreForSnapshot) Snapshot() ([]byte, error)  { return s.snapData, s.snapErr }
+func (s *mockStoreForSnapshot) Restore([]byte) error       { return nil }
+func (s *mockStoreForSnapshot) Len() int                   { return s.lenVal }
 
 func TestCoordinator_maybeTriggerSnapshot_SnapCountZero_NoOp(t *testing.T) {
 	c := &Coordinator{snapCount: 0}
@@ -28,13 +28,13 @@ func TestCoordinator_maybeTriggerSnapshot_SnapCountZero_NoOp(t *testing.T) {
 }
 
 func TestCoordinator_maybeTriggerSnapshot_NotEnoughDistance_NoOp(t *testing.T) {
-	w := &fakeWAL{SnapIndex: 90}
-	n := &fakeNode{id: 1, wal: w}
+	w := &mockWAL{SnapIndex: 90}
+	n := &mockNode{id: 1, wal: w}
 
 	c := &Coordinator{
 		node:      n,
 		snapCount: 20,
-		store:     &fakeStoreForSnapshot{snapData: []byte("x"), lenVal: 1},
+		store:     &mockStoreForSnapshot{snapData: []byte("x"), lenVal: 1},
 	}
 
 	if err := c.maybeTriggerSnapshot(100); err != nil {
@@ -54,13 +54,13 @@ func TestCoordinator_triggerSnapshot_AppliedIndexZero_NoOp(t *testing.T) {
 
 func TestCoordinator_triggerSnapshot_StoreSnapshotError(t *testing.T) {
 
-	w := &fakeWAL{}
-	n := &fakeNode{id: 1, wal: w}
+	w := &mockWAL{}
+	n := &mockNode{id: 1, wal: w}
 
 	sentinel := errors.New("snap")
 	c := &Coordinator{
 		node:  n,
-		store: &fakeStoreForSnapshot{snapErr: sentinel},
+		store: &mockStoreForSnapshot{snapErr: sentinel},
 	}
 
 	err := c.triggerSnapshot(10, nil)
@@ -70,12 +70,12 @@ func TestCoordinator_triggerSnapshot_StoreSnapshotError(t *testing.T) {
 }
 
 func TestCoordinator_triggerSnapshot_EmptyData_NoOp(t *testing.T) {
-	w := &fakeWAL{}
-	n := &fakeNode{id: 1, wal: w}
+	w := &mockWAL{}
+	n := &mockNode{id: 1, wal: w}
 
 	c := &Coordinator{
 		node:  n,
-		store: &fakeStoreForSnapshot{snapData: nil, lenVal: 0},
+		store: &mockStoreForSnapshot{snapData: nil, lenVal: 0},
 	}
 
 	if err := c.triggerSnapshot(10, nil); err != nil {
@@ -87,13 +87,13 @@ func TestCoordinator_triggerSnapshot_EmptyData_NoOp(t *testing.T) {
 }
 
 func TestCoordinator_triggerSnapshot_SnapOutOfDate_IsIgnored(t *testing.T) {
-	w := &fakeWAL{CreateSnapshotErr: etcdraft.ErrSnapOutOfDate}
-	n := &fakeNode{id: 1, wal: w}
+	w := &mockWAL{CreateSnapshotErr: etcdraft.ErrSnapOutOfDate}
+	n := &mockNode{id: 1, wal: w}
 
 	c := &Coordinator{
 		node:      n,
 		snapCount: 5,
-		store:     &fakeStoreForSnapshot{snapData: []byte("data"), lenVal: 1},
+		store:     &mockStoreForSnapshot{snapData: []byte("data"), lenVal: 1},
 	}
 
 	if err := c.triggerSnapshot(10, nil); err != nil {
@@ -108,13 +108,13 @@ func TestCoordinator_triggerSnapshot_SnapOutOfDate_IsIgnored(t *testing.T) {
 }
 
 func TestCoordinator_triggerSnapshot_Success_CompactsUsingSnapCount(t *testing.T) {
-	w := &fakeWAL{}
-	n := &fakeNode{id: 1, wal: w}
+	w := &mockWAL{}
+	n := &mockNode{id: 1, wal: w}
 
 	c := &Coordinator{
 		node:      n,
 		snapCount: 5,
-		store:     &fakeStoreForSnapshot{snapData: []byte("data"), lenVal: 1},
+		store:     &mockStoreForSnapshot{snapData: []byte("data"), lenVal: 1},
 	}
 
 	if err := c.triggerSnapshot(10, nil); err != nil {

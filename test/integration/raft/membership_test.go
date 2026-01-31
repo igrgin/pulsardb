@@ -11,7 +11,7 @@ import (
 )
 
 func TestAddNodeToCluster(t *testing.T) {
-	c := helper.NewCluster(t, nil, "debug")
+	c := helper.NewCluster(t, nil, "info")
 
 	c.StartNodes(3, 60, false)
 
@@ -45,8 +45,8 @@ func TestAddNodeToCluster(t *testing.T) {
 	require.NotNil(t, leader)
 	require.Equal(t, leaderID, leader.ID)
 
-	if err := leader.Coordinator.ProposeAddNode(ctx, newNodeID, newRaftAddr, newClientAddr); err != nil {
-		t.Fatalf("ProposeAddNode failed: %v", err)
+	if err := leader.Coordinator.PromoteToVoter(ctx, newNodeID, newRaftAddr, newClientAddr); err != nil {
+		t.Fatalf("PromoteToVoter failed: %v", err)
 	}
 
 	time.Sleep(3 * time.Second)
@@ -232,6 +232,7 @@ func TestAddLearnerNode(t *testing.T) {
 		BatchWait:              2,
 		PromotionThreshold:     10000,
 		PromotionCheckInterval: 1 * time.Minute,
+		CleanupTickInterval:    100 * time.Millisecond,
 	}
 	c := helper.NewCluster(t, cfg, "info")
 
@@ -333,8 +334,8 @@ func TestPromoteLearnerToVoter(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	if err := leader.Coordinator.ProposeAddNode(ctx, learnerID, learnerRaftAddr, learnerClientAddr); err != nil {
-		t.Fatalf("ProposeAddNode (promote) failed: %v", err)
+	if err := leader.Coordinator.PromoteToVoter(ctx, learnerID, learnerRaftAddr, learnerClientAddr); err != nil {
+		t.Fatalf("PromoteToVoter (promote) failed: %v", err)
 	}
 
 	time.Sleep(2 * time.Second)
@@ -434,8 +435,8 @@ func TestAddRemoveMultipleNodes(t *testing.T) {
 
 		targetApplied := leader.Coordinator.LastApplied()
 
-		if err := leader.Coordinator.ProposeAddNode(ctx, newID, newRaftAddr, newClientAddr); err != nil {
-			t.Fatalf("ProposeAddNode for %d failed: %v", newID, err)
+		if err := leader.Coordinator.PromoteToVoter(ctx, newID, newRaftAddr, newClientAddr); err != nil {
+			t.Fatalf("PromoteToVoter for %d failed: %v", newID, err)
 		}
 
 		require.Eventually(t, func() bool {
@@ -538,11 +539,11 @@ func TestMembershipChangeNotLeader(t *testing.T) {
 
 	follower := followers[0]
 
-	err := follower.Coordinator.ProposeAddNode(ctx, 99, "127.0.0.1:99999", "127.0.0.1:11111")
+	err := follower.Coordinator.PromoteToVoter(ctx, 99, "127.0.0.1:99999", "127.0.0.1:11111")
 	if err == nil {
-		t.Error("ProposeAddNode from follower should have failed")
+		t.Error("PromoteToVoter from follower should have failed")
 	} else {
-		t.Logf("ProposeAddNode from follower correctly failed: %v", err)
+		t.Logf("PromoteToVoter from follower correctly failed: %v", err)
 	}
 
 	err = follower.Coordinator.ProposeRemoveNode(ctx, 1)
@@ -750,8 +751,8 @@ func TestConfStatePersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("failed to add node: %v", err)
 	}
 
-	if err := leader.Coordinator.ProposeAddNode(ctx, newNodeID, newRaftAddr, newClientAddr); err != nil {
-		t.Fatalf("ProposeAddNode failed: %v", err)
+	if err := leader.Coordinator.PromoteToVoter(ctx, newNodeID, newRaftAddr, newClientAddr); err != nil {
+		t.Fatalf("PromoteToVoter failed: %v", err)
 	}
 
 	time.Sleep(2 * time.Second)

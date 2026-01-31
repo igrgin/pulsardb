@@ -103,6 +103,7 @@ func TestBatchByTime(t *testing.T) {
 
 func TestMixedBatchTriggers(t *testing.T) {
 	cfg := DefaultTestClusterConfigurations()
+
 	c := helper.NewCluster(t, cfg, "info")
 	c.StartNodes(3, 60, false)
 
@@ -225,8 +226,6 @@ func TestFlushSkippedAllCommandsExpired(t *testing.T) {
 
 	cfg.BatchWait = 50 * time.Millisecond
 
-	cfg.CleanupTickInterval = 10 * time.Millisecond
-
 	c := helper.NewCluster(t, cfg, "info")
 	c.StartNodes(3, 60, false)
 
@@ -284,6 +283,7 @@ func DefaultTestClusterConfigurations() *helper.TestClusterConfig {
 		BatchWait:              50 * time.Millisecond,
 		PromotionThreshold:     100,
 		PromotionCheckInterval: 5 * time.Second,
+		CleanupTickInterval:    10 * time.Millisecond,
 	}
 	return cfg
 }

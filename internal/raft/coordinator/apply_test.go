@@ -21,9 +21,9 @@ func (s *memStore) Get(k string) ([]byte, bool) { v, ok := s.m[k]; return v, ok 
 
 func TestCoordinator_applyEntries_UpdatesLastAppliedAndReturnsLastIndex(t *testing.T) {
 	c := &Coordinator{
-		node: &fakeNode{
+		node: &mockNode{
 			id:  1,
-			wal: &fakeWAL{},
+			wal: &mockWAL{},
 		},
 		readWaiters: make(map[string]*readWaiter),
 	}

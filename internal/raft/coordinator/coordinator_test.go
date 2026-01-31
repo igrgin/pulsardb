@@ -21,10 +21,10 @@ func TestCoordinator_Propose_ShuttingDown(t *testing.T) {
 
 func TestCoordinator_Propose_NoLeader(t *testing.T) {
 	c := &Coordinator{
-		node: &fakeNode{
+		node: &mockNode{
 			id:     1,
 			status: etcdraft.Status{BasicStatus: etcdraft.BasicStatus{SoftState: etcdraft.SoftState{Lead: 0}}},
-			wal:    &fakeWAL{},
+			wal:    &mockWAL{},
 		},
 	}
 
@@ -36,10 +36,10 @@ func TestCoordinator_Propose_NoLeader(t *testing.T) {
 func TestCoordinator_Propose_ForwardsToNode(t *testing.T) {
 	called := false
 
-	n := &fakeNode{
+	n := &mockNode{
 		id:     1,
 		status: etcdraft.Status{BasicStatus: etcdraft.BasicStatus{SoftState: etcdraft.SoftState{Lead: 2}}},
-		wal:    &fakeWAL{},
+		wal:    &mockWAL{},
 		ProposeFn: func(ctx context.Context, d []byte) error {
 			called = true
 			if string(d) != "abc" {
@@ -70,7 +70,7 @@ func TestCoordinator_ReadIndex_ShuttingDown(t *testing.T) {
 }
 
 func TestCoordinator_GetPeerAddr_ReturnsClientAddr(t *testing.T) {
-	tr := &fakeTransport{}
+	tr := &mockTransport{}
 	tr.AddPeer(2, "raft:1", "client:1")
 
 	c := &Coordinator{transport: tr}
@@ -81,9 +81,9 @@ func TestCoordinator_GetPeerAddr_ReturnsClientAddr(t *testing.T) {
 }
 
 func TestCoordinator_Step_RoundTripWithoutRunningMainLoop(t *testing.T) {
-	n := &fakeNode{
+	n := &mockNode{
 		id:  1,
-		wal: &fakeWAL{},
+		wal: &mockWAL{},
 		StepFn: func(ctx context.Context, msg raftpb.Message) error {
 			if msg.Type != raftpb.MsgHeartbeat {
 				t.Fatalf("unexpected msg type: %v", msg.Type)
